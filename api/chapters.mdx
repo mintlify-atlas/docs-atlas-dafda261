@@ -1,0 +1,377 @@
+---
+title: 'Chapter Management'
+description: 'API endpoints for saving and managing chapter data'
+icon: 'book-open'
+---
+
+## Save Chapter
+
+<api method="POST" endpoint="/api/save-chapter" />
+
+Saves a single chapter's content and updates job metadata. This endpoint is called once per chapter during scraping.
+
+### Request Body
+
+<ParamField body="job_id" type="string" required>
+  Unique identifier for the scraping job (UUID v4)
+</ParamField>
+
+<ParamField body="chapter_title" type="string" required>
+  The title of the chapter (e.g., "Chapter 1: The Beginning")
+</ParamField>
+
+<ParamField body="content" type="array" required>
+  Array of paragraph strings that make up the chapter content
+</ParamField>
+
+<ParamField body="novel_name" type="string" required>
+  The name of the novel being scraped
+</ParamField>
+
+<ParamField body="author" type="string" default="Unknown">
+  The author's name
+</ParamField>
+
+<ParamField body="cover_data" type="string" default="">
+  Cover image as base64 data URI or direct URL
+</ParamField>
+
+<ParamField body="start_url" type="string">
+  The URL of the current chapter (used for bookmarking)
+</ParamField>
+
+<ParamField body="next_url" type="string">
+  The URL of the next chapter to scrape
+</ParamField>
+
+<ParamField body="sourceId" type="string" default="generic">
+  Provider ID (e.g., "allnovel", "lightnovelworld")
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Always returns `"ok"` on success
+</ResponseField>
+
+<ResponseField name="job_id" type="string">
+  Echo of the job ID from the request
+</ResponseField>
+
+### Behavior
+
+1. **Appends chapter data** to `{job_id}_progress.jsonl` in JSONL format
+2. **Counts total chapters** by reading the line count
+3. **Updates or creates** job entry in `jobs_history.json` with:
+   - Novel metadata (name, author, cover)
+   - Current chapter count
+   - Bookmark to next chapter URL
+   - Status set to `"processing"`
+   - Provider sourceId
+4. **Persists** history to disk immediately
+
+### Example Request
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/save-chapter \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "chapter_title": "Chapter 1: The Beginning",
+    "content": [
+      "It was a dark and stormy night.",
+      "The protagonist sat alone in their room.",
+      "Little did they know, adventure awaited."
+    ],
+    "novel_name": "Epic Fantasy Novel",
+    "author": "Jane Doe",
+    "sourceId": "allnovel",
+    "start_url": "https://example.com/novel/chapter-1",
+    "next_url": "https://example.com/novel/chapter-2"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "status": "ok",
+  "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+### JavaScript Example
+
+```javascript
+const saveChapter = async (chapterData) => {
+  const response = await fetch('http://127.0.0.1:8000/api/save-chapter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      job_id: chapterData.jobId,
+      chapter_title: chapterData.title,
+      content: chapterData.paragraphs,
+      novel_name: chapterData.novelName,
+      author: chapterData.author || 'Unknown',
+      next_url: chapterData.nextChapterUrl,
+      sourceId: 'custom-provider'
+    })
+  });
+  
+  const result = await response.json();
+  console.log(`Chapter saved: ${result.job_id}`);
+};
+```
+
+### Python Example
+
+```python
+import requests
+
+def save_chapter(job_id, chapter_data):
+    payload = {
+        "job_id": job_id,
+        "chapter_title": chapter_data["title"],
+        "content": chapter_data["paragraphs"],
+        "novel_name": "My Novel",
+        "author": "Author Name",
+        "next_url": chapter_data.get("next_url")
+    }
+    
+    response = requests.post(
+        "http://127.0.0.1:8000/api/save-chapter",
+        json=payload
+    )
+    
+    if response.status_code == 200:
+        print(f"Chapter saved: {response.json()['job_id']}")
+    else:
+        print(f"Error: {response.json()['detail']}")
+```
+
+## Check Status
+
+<api method="GET" endpoint="/api/status/{job_id}" />
+
+Retrieves the current status and progress of a scraping job.
+
+### Path Parameters
+
+<ParamField path="job_id" type="string" required>
+  The unique job identifier
+</ParamField>
+
+### Response
+
+<ResponseField name="job_id" type="string">
+  The job identifier
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current status: `"processing"`, `"paused"`, `"completed"`, or `"not found"`
+</ResponseField>
+
+<ResponseField name="progress" type="string">
+  Human-readable progress text (e.g., "42 chapters scraped")
+</ResponseField>
+
+<ResponseField name="chapters_count" type="number">
+  Total number of chapters scraped so far
+</ResponseField>
+
+<ResponseField name="novel_name" type="string">
+  The name of the novel
+</ResponseField>
+
+### Example Request
+
+```bash
+curl http://127.0.0.1:8000/api/status/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+### Example Response
+
+```json
+{
+  "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "status": "processing",
+  "progress": "42 chapters scraped",
+  "chapters_count": 42,
+  "novel_name": "Epic Fantasy Novel"
+}
+```
+
+### Paused Status
+
+If the job is paused (exists in `active_scrapes.json`):
+
+```json
+{
+  "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "status": "paused",
+  "progress": "42 chapters scraped (Last: Chapter 42: The Cliffhanger)",
+  "chapters_count": 42,
+  "novel_name": "Epic Fantasy Novel"
+}
+```
+
+## Stop Scraping
+
+<api method="POST" endpoint="/api/stop-scrape" />
+
+Pauses an active scraping job and saves progress for later resumption.
+
+### Request Body
+
+<ParamField body="job_id" type="string" required>
+  The job to pause
+</ParamField>
+
+<ParamField body="reason" type="string" default="user_requested">
+  Reason for stopping (for logging purposes)
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Returns `"paused"`
+</ResponseField>
+
+<ResponseField name="job_id" type="string">
+  The paused job ID
+</ResponseField>
+
+<ResponseField name="note" type="string" optional>
+  Additional information (e.g., if stopped before first chapter)
+</ResponseField>
+
+### Behavior
+
+1. **Updates status** to `"paused"` in history
+2. **Reads progress file** to get last chapter info
+3. **Saves to active_scrapes.json** with:
+   - Chapter count
+   - Last chapter title
+4. **Allows resumption** from the next chapter
+
+### Example Request
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/stop-scrape \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "reason": "user_requested"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "status": "paused",
+  "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+<Warning>
+  If you stop before the first chapter saves, the job won't exist in history. The endpoint will acknowledge the stop but no data will be persisted.
+</Warning>
+
+## Delete Novel
+
+<api method="DELETE" endpoint="/api/novel/{job_id}" />
+
+Deletes all data associated with a scraping job, including progress files and history entries.
+
+### Path Parameters
+
+<ParamField path="job_id" type="string" required>
+  The job to delete
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Returns `"deleted"` on success
+</ResponseField>
+
+### Behavior
+
+1. **Deletes progress file** (`{job_id}_progress.jsonl`)
+2. **Removes from history** (`jobs_history.json`)
+3. **Removes from active scrapes** if paused
+4. **Does NOT delete** the EPUB file (use library deletion for that)
+
+### Example Request
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/api/novel/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+### Example Response
+
+```json
+{
+  "status": "deleted"
+}
+```
+
+## Data Format
+
+### Progress File Format
+
+Chapters are stored in **JSONL** (JSON Lines) format in `jobs/{job_id}_progress.jsonl`:
+
+```jsonl
+["Chapter 1: The Beginning", ["Paragraph 1", "Paragraph 2", "Paragraph 3"]]
+["Chapter 2: The Journey", ["Paragraph 1", "Paragraph 2"]]
+["Chapter 3: The Climax", ["Paragraph 1", "Paragraph 2", "Paragraph 3", "Paragraph 4"]]
+```
+
+Each line is a JSON array with:
+1. **Chapter title** (string)
+2. **Content array** (array of paragraph strings)
+
+### History Entry Format
+
+```json
+{
+  "novel_name": "Epic Fantasy Novel",
+  "status": "processing",
+  "author": "Jane Doe",
+  "cover_data": "data:image/jpeg;base64,...",
+  "start_url": "https://example.com/novel/chapter-43",
+  "sourceId": "allnovel",
+  "chapters_count": 42,
+  "last_updated": "1709856000.123"
+}
+```
+
+## Error Handling
+
+### Missing job_id
+
+```json
+{
+  "detail": "Missing job_id"
+}
+```
+
+HTTP Status: `400 Bad Request`
+
+### Job not found
+
+For `/api/status/{job_id}` when job doesn't exist:
+
+```json
+{
+  "job_id": "unknown-id",
+  "status": "not found",
+  "progress": "0 chapters scraped",
+  "chapters_count": 0,
+  "novel_name": "Unknown"
+}
+```
+
+HTTP Status: `200 OK` (not an error, just reports status)

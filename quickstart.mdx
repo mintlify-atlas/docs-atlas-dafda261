@@ -1,80 +1,429 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Download your first web novel in 5 minutes
+icon: rocket
 ---
 
-## Get started in three steps
+This guide will walk you through downloading your first web novel with Universal Novel Scraper. By the end, you'll have a professionally formatted EPUB ready to read on any device.
 
-Get your documentation site running locally and make your first customization.
+## Overview
 
-### Step 1: Set up your local environment
+UNS uses a browser-based scraping approach that mimics human behavior, allowing it to:
+- Bypass bot detection systems like Cloudflare
+- Handle dynamic JavaScript-heavy websites
+- Maintain consistent scraping sessions
+- Extract clean chapter content automatically
+
+<Note>
+  Make sure you've completed the [Installation](/installation) steps before continuing.
+</Note>
+
+---
+
+## Your First Download
+
+<Steps>
+  <Step title="Launch UNS and Navigate to Download Manager">
+    Open the Universal Novel Scraper application. You'll see the main interface with three tabs in the sidebar:
+    
+    - **Download** - Active downloads and job controls
+    - **History** - Resume or delete previous downloads
+    - **Library** - View and manage your EPUB collection
+    
+    Click on the **Download** tab if not already selected.
+    
+    <Frame>
+      <img src="/assets/Download.png" alt="Download Manager Interface" />
+    </Frame>
+  </Step>
+
+  <Step title="Choose a Provider">
+    UNS uses provider scripts to support different novel websites. The app comes with several built-in providers.
+    
+    To browse available sources:
+    1. Click the **Providers** button in the toolbar
+    2. View installed provider scripts
+    3. Install additional providers from the community repository if needed
+    
+    <Tip>
+      Popular providers include sites like NovelUpdates, ReadLightNovel, and WebNovel. Install providers that host your favorite novels.
+    </Tip>
+    
+    <Frame>
+      <img src="/assets/Providers.png" alt="Provider Marketplace" />
+    </Frame>
+  </Step>
+
+  <Step title="Search for a Novel">
+    Navigate to the **Search** tab to find novels across all installed providers:
+    
+    1. Enter the novel title in the search bar
+    2. Select which providers to search (or search all)
+    3. Click **Search**
+    
+    The search aggregates results from multiple sources in real-time.
+    
+    <Frame>
+      <img src="/assets/Search.png" alt="Multi-Provider Search" />
+    </Frame>
+    
+    <Accordion title="Browsing Latest Releases">
+      You can also browse trending and recently updated novels by category:
+      
+      1. Select a provider from the dropdown
+      2. Choose a category (Action, Romance, Fantasy, etc.)
+      3. Browse paginated results
+      
+      <Frame>
+        <img src="/assets/Search2.png" alt="Category Browsing" />
+      </Frame>
+    </Accordion>
+  </Step>
+
+  <Step title="Select Novel and Starting Chapter">
+    Click on a novel from search results to view its details:
+    
+    - **Description** - Plot synopsis
+    - **Author** - Creator information
+    - **Chapter List** - All available chapters
+    
+    To start downloading:
+    1. Select your starting chapter from the dropdown
+    2. Optionally customize the novel metadata (title, author)
+    3. Upload a custom cover image if desired (or use the default)
+    4. Click **Start Download**
+    
+    <Note>
+      UNS will automatically scrape all chapters starting from your selected chapter until it reaches the last available chapter or a dead-end link.
+    </Note>
+  </Step>
+
+  <Step title="Monitor Download Progress">
+    Once started, the Download Manager shows real-time progress:
+    
+    - **Status Messages** - Current action (Loading, Saving, Cloudflare detected)
+    - **Chapter Count** - Number of chapters saved
+    - **Live Console** - Detailed scraping logs
+    - **Browser Window Toggle** - View the live scraping session
+    
+    ```javascript
+    // Example console output
+    Chapter 1: Fetching...
+    ✓ Saved Chapter 1
+    Chapter 2: Fetching...
+    ✓ Saved Chapter 2
+    Chapter 3: Fetching...
+    ```
+    
+    <Tip>
+      Click **"Show Browser"** to watch the scraper navigate pages in real-time. This is helpful for debugging or verifying the scraping process.
+    </Tip>
+  </Step>
+
+  <Step title="Handle Cloudflare Challenges (If Needed)">
+    Some websites use Cloudflare protection. If detected, UNS can handle it:
+    
+    1. Enable **"Cloudflare Bypass Mode"** before starting the download
+    2. If a challenge appears, the browser window will automatically show
+    3. Manually solve the CAPTCHA or verification
+    4. Scraping resumes automatically once cleared
+    
+    <Warning>
+      With Cloudflare bypass enabled, UNS adds random delays (1.5-4 seconds) between chapters to appear more human-like. Downloads will take longer but are more reliable.
+    </Warning>
+    
+    ```javascript
+    // Cloudflare detection code from main.js:126
+    async function detectCloudflare(window) {
+      const title = await window.webContents.getTitle();
+      const titleIndicators = ['just a moment', 'cloudflare', 
+        'attention required', 'verify you are human'];
+      return titleIndicators.some(i => title.toLowerCase().includes(i));
+    }
+    ```
+  </Step>
+
+  <Step title="Download Completes">
+    When all chapters are scraped, UNS automatically:
+    
+    1. Compiles chapters into a single EPUB file
+    2. Embeds metadata (title, author)
+    3. Adds the cover image
+    4. Saves to your library
+    
+    You'll see:
+    ```
+    📦 Generating EPUB...
+    ✅ Success!
+    ```
+    
+    The EPUB is now available in your Library.
+  </Step>
+</Steps>
+
+---
+
+## Accessing Your EPUB
+
+<Steps>
+  <Step title="Navigate to Library">
+    Click the **Library** tab in the sidebar. You'll see all your downloaded novels with:
+    
+    - **Cover Images** - Automatically extracted from EPUBs
+    - **Title & Author** - From embedded metadata
+    - **Action Buttons** - Open, Export, or Delete
+    
+    <Frame>
+      <img src="/assets/Library.png" alt="Library Grid View" />
+    </Frame>
+  </Step>
+
+  <Step title="Read or Export">
+    You have several options:
+    
+    **Open in UNS Reader**
+    - Click the book cover to open the built-in EPUB reader
+    - Navigate with arrow keys or click navigation
+    - Bookmark and track reading progress
+    
+    <Frame>
+      <img src="/assets/Library1.png" alt="Built-in EPUB Reader" />
+    </Frame>
+    
+    **Export to External Reader**
+    - Click the **Export** button to download the EPUB file
+    - Transfer to your e-reader (Kindle, Kobo, etc.)
+    - Open in apps like Calibre, Apple Books, or Google Play Books
+    
+    **Open Output Folder**
+    - Click **"Open Folder"** to access the storage directory
+    - Files are stored in `output/epubs/` in your user data folder
+  </Step>
+</Steps>
+
+---
+
+## Resuming Interrupted Downloads
+
+If a download is interrupted (app crash, network issue, manual stop), you can resume from where it left off:
+
+<Steps>
+  <Step title="Open History Tab">
+    Navigate to the **History** tab. You'll see all incomplete downloads with:
+    
+    - Novel name
+    - Current progress ("X chapters scraped")
+    - Status (Processing, Paused, Error)
+    
+    <Frame>
+      <img src="/assets/History.png" alt="Download History" />
+    </Frame>
+  </Step>
+
+  <Step title="Resume Download">
+    Click the **Resume** button next to the paused download. UNS will:
+    
+    1. Load the saved job state from `backend/output/jobs/<job_id>_progress.jsonl`
+    2. Read the last successfully scraped chapter
+    3. Continue from the next chapter URL
+    4. Preserve all previously downloaded content
+    
+    ```python
+    # Resume logic from backend/api.py:244
+    @app.get("/api/status/{job_id}")
+    def check_status(job_id: str):
+        progress_file = get_progress_file(job_id)
+        if os.path.exists(progress_file):
+            with open(progress_file, "r", encoding="utf-8") as f:
+                chapter_count = sum(1 for _ in f)
+        return {"chapters_count": chapter_count, ...}
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Do not delete items from History until the EPUB is fully generated. Deleting removes all temporary chapter data, and you'll need to restart the download from scratch.
+</Warning>
+
+---
+
+## Tips for Successful Downloads
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="Optimize Download Speed">
+    - **Disable Cloudflare bypass** for sites that don't require it (faster scraping)
+    - **Close the browser window** when not needed (reduces resource usage)
+    - **Download during off-peak hours** to avoid rate limiting
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+  
+  <Accordion title="Handle Stubborn Websites">
+    If a site consistently fails:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+    1. **Enable Cloudflare bypass mode** and add random delays
+    2. **Use the browser window** to check for additional verification steps
+    3. **Check provider scripts** - they may need updating for site changes
+    4. **Try a different provider** - the same novel may be on multiple sites
+  </Accordion>
+  
+  <Accordion title="Improve EPUB Quality">
+    - **Upload a high-quality cover** before starting (recommended 600x800px or larger)
+    - **Verify author and title** are correct (hard to change after generation)
+    - **Check the first few chapters** to ensure content extraction is working properly
+  </Accordion>
+  
+  <Accordion title="Manage Storage Space">
+    EPUBs can get large for long novels (500+ chapters):
+    
+    - **Export and delete** finished novels you've already transferred to an e-reader
+    - **Clear history** for completed downloads to remove temporary files
+    - **Monitor the output folder** periodically
+    
+    Storage locations:
+    - Windows: `C:\Users\<You>\AppData\Roaming\UNS\output\epubs`
+    - macOS: `~/Library/Application Support/UNS/output/epubs`
+    - Linux: `~/.config/UNS/output/epubs`
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+---
+
+## Understanding the Scraping Process
+
+UNS uses a sophisticated multi-stage scraping architecture:
+
+### Architecture Overview
+
+```
+┌─────────────────┐
+│   React UI      │  User initiates download
+└────────┬────────┘
+         │ IPC
+         ▼
+┌─────────────────┐
+│ Electron Main   │  Manages browser session
+└────────┬────────┘
+         │ Controls
+         ▼
+┌─────────────────┐
+│ Chromium Window │  Loads pages like a human
+└────────┬────────┘
+         │ Extracts HTML
+         ▼
+┌─────────────────┐
+│ Provider Script │  Parses content with custom rules
+└────────┬────────┘
+         │ POST /api/save-chapter
+         ▼
+┌─────────────────┐
+│ FastAPI Backend │  Stores chapters, generates EPUB
+└─────────────────┘
+```
+
+### How Chapter Extraction Works
+
+Provider scripts inject custom JavaScript into each page:
+
+```javascript
+// Example from main.js:180
+pageData = await scraperWindow.webContents.executeJavaScript(`
+  (() => {
+    // Extract chapter title
+    const title = document.querySelector('.chapter-title, h1')?.innerText;
+    
+    // Extract content paragraphs
+    const paragraphs = Array.from(
+      document.querySelectorAll('.chapter-content p')
+    ).map(p => p.innerText.trim()).filter(p => p.length > 0);
+    
+    // Find "Next Chapter" link
+    const nextBtn = Array.from(document.querySelectorAll('a')).find(a => {
+      return (a.innerText || '').toLowerCase().includes('next');
+    });
+    
+    return { title, paragraphs, nextUrl: nextBtn?.href };
+  })()
+`);
+```
+
+This extracted data is then sent to the Python backend for storage.
+
+---
+
+## Common Issues and Solutions
 
 <AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+  <Accordion title="No Content Found Error">
+    This means the provider script couldn't locate chapter text on the page.
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
+    **Solutions:**
+    1. Check if the website structure changed (inspect the page)
+    2. Update the provider script from the marketplace
+    3. Report the issue to the provider maintainer
+    4. Try an alternative source for the same novel
+  </Accordion>
+  
+  <Accordion title="Download Stops After One Chapter">
+    The scraper couldn't find a "Next Chapter" link.
+    
+    **Causes:**
+    - The link uses `javascript:;` instead of a real URL
+    - The link is hidden behind a login wall
+    - You've reached the last available chapter
+    
+    **Solution:**
+    Manually navigate to the chapter list and resume from a specific chapter URL.
+  </Accordion>
+  
+  <Accordion title="Chapters Are Duplicated">
+    This happens if the "Next Chapter" link points to the same page.
+    
+    UNS has built-in duplicate detection:
+    ```javascript
+    // From main.js:196
+    absoluteHref.split('#')[0] !== window.location.href.split('#')[0]
+    ```
+    
+    If duplicates still occur, the provider script may need updating.
+  </Accordion>
+  
+  <Accordion title="EPUB Won't Open in Reader">
+    Verify the EPUB is valid:
+    
+    1. Try opening in multiple readers (Calibre is most lenient)
+    2. Check file size - 0 KB indicates generation failed
+    3. Look at console logs for Python errors during `finalize-epub`
+    
+    Common causes:
+    - Invalid cover image format
+    - Corrupt chapter data
+    - Insufficient disk space
   </Accordion>
 </AccordionGroup>
 
-### Step 3: Go live
+---
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Next Steps
 
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Now that you've downloaded your first novel, explore advanced features:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Search & Discovery" icon="magnifying-glass" href="/features/search">
+    Master multi-provider search and category browsing
+  </Card>
+  
+  <Card title="Provider System" icon="puzzle-piece" href="/advanced/providers">
+    Install and create custom website scrapers
+  </Card>
+  
+  <Card title="Library Management" icon="books" href="/features/library-manager">
+    Organize, read, and export your collection
+  </Card>
+  
+  <Card title="Cloudflare Bypass" icon="shield" href="/advanced/cloudflare-bypass">
+    Handle protected sites with manual control
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  **Having trouble?** Check the [Troubleshooting](/troubleshooting) page or open an issue on [GitHub](https://github.com/OsamaTab/UNS/issues).
 </Note>

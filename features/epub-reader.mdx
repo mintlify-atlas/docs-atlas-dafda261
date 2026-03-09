@@ -1,0 +1,597 @@
+---
+title: 'Built-in EPUB Reader'
+description: 'Read your novels with a full-featured EPUB reader including progress tracking, themes, and seamless navigation'
+icon: 'book-open'
+---
+
+## Overview
+
+The **Built-in EPUB Reader** provides a distraction-free reading experience directly within UNS. It includes automatic progress tracking, customizable themes, chapter navigation, and seamless integration with your library.
+
+<Note>
+  The reader uses the `react-reader` library built on `epub.js`, supporting EPUB 2 and EPUB 3 standards.
+</Note>
+
+---
+
+## Opening the Reader
+
+### From Library
+
+<Steps>
+  <Step title="Navigate to Library">
+    Go to the Library page and find the book you want to read
+  </Step>
+  
+  <Step title="Click Read Now">
+    Hover over the book card and click the **Read Now** button
+  </Step>
+  
+  <Step title="Reader Opens">
+    Full-screen reader launches with your book loaded
+  </Step>
+  
+  <Step title="Auto-Resume">
+    If you've read this book before, it automatically opens to your last position
+  </Step>
+</Steps>
+
+<Tabs>
+  <Tab title="New Books">
+    Books you haven't started show:
+    
+    ```
+    Read Now
+    ```
+    
+    Opens to the first page (TOC or Chapter 1)
+  </Tab>
+  
+  <Tab title="In-Progress Books">
+    Books with saved progress show:
+    
+    ```
+    Continue
+    ```
+    
+    Resumes from your last read position
+  </Tab>
+  
+  <Tab title="Completed Books">
+    Books you've finished show:
+    
+    ```
+    Read Again
+    ```
+    
+    Reopens from the beginning
+  </Tab>
+</Tabs>
+
+---
+
+## Reader Interface
+
+### Navigation Bar
+
+The top bar displays:
+
+<CardGroup cols={3}>
+  <Card title="Book Info" icon="book">
+    - Novel title (truncated if long)
+    - Author name
+    - Current chapter (e.g., "Ch. 24 / 150")
+  </Card>
+  
+  <Card title="Theme Toggle" icon="sun-moon">
+    Switch between dark and light reading modes
+  </Card>
+  
+  <Card title="Close Button" icon="x">
+    Exit reader and save progress
+  </Card>
+</CardGroup>
+
+```jsx
+// Reader header structure
+<div className="flex items-center justify-between p-4 bg-zinc-900">
+  <div className="flex items-center gap-4">
+    <BookOpen size={20} className="text-blue-500" />
+    <div>
+      <h2 className="font-bold">{book.title}</h2>
+      <p className="text-xs text-zinc-500">{book.author}</p>
+      <span className="text-blue-400">Ch. {current} / {total}</span>
+    </div>
+  </div>
+  
+  <div className="flex gap-3">
+    <button onClick={toggleTheme}>
+      {theme === 'dark' ? <Sun /> : <Moon />}
+    </button>
+    <button onClick={closeReader}>
+      <X />
+    </button>
+  </div>
+</div>
+```
+
+### Reading Area
+
+The main content area supports:
+
+- **Click navigation**: Click edges to turn pages
+- **Arrow keys**: Left/Right for prev/next
+- **Table of Contents**: Hamburger menu (left side)
+- **Responsive text**: Reflows based on window size
+
+<Tip>
+  Click the **left 20%** of the screen to go back, and the **right 20%** to advance. The center area toggles the TOC/menu.
+</Tip>
+
+---
+
+## Progress Tracking
+
+### Automatic Saving
+
+Progress saves automatically every time you turn a page:
+
+```jsx
+// Progress tracking implementation
+const handleLocationChanged = (epubcifi) => {
+  // Extract current chapter from location
+  const currentLocation = rendition.location.start;
+  const currentHref = currentLocation.href.split('#')[0];
+  const chapterIndex = toc.findIndex(item => 
+    item.href.includes(currentHref)
+  );
+  
+  const progressData = {
+    cfi: epubcifi,              // Exact page position
+    current: chapterIndex + 1,  // Current chapter number
+    total: toc.length           // Total chapters
+  };
+  
+  // Save to localStorage
+  localStorage.setItem(
+    `epub-progress-${book.filename}`, 
+    JSON.stringify(progressData)
+  );
+};
+```
+
+<Info>
+  The CFI (Canonical Fragment Identifier) is an EPUB standard for pinpointing exact positions within a book, accurate down to the word level.
+</Info>
+
+### Progress Indicators
+
+Progress appears in multiple places:
+
+| Location | Format | Example |
+|----------|--------|----------|
+| **Reader Header** | "Ch. X / Y" | Ch. 45 / 150 |
+| **Library Grid** | Progress bar (%) | 30% complete (blue bar) |
+| **Library List** | Text format | "Ch 45 / 150" |
+| **Completion Badge** | Green tag | "Completed" |
+
+---
+
+## Reading Themes
+
+### Dark Mode (Default)
+
+<Tabs>
+  <Tab title="Colors">
+    ```css
+    body {
+      background: #09090b;  /* Near-black */
+      color: #e4e4e7;       /* Light gray */
+    }
+    
+    a {
+      color: #3b82f6;       /* Blue links */
+    }
+    
+    p, span, div, h1, h2, h3, h4, li {
+      color: #e4e4e7;       /* Consistent text color */
+      background: transparent;
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Best For">
+    - **Night reading**: Reduces eye strain in low light
+    - **OLED screens**: Saves battery on devices with OLED displays
+    - **Long sessions**: Easier on the eyes for extended reading
+    - **Dark room environments**: Doesn't illuminate surroundings
+  </Tab>
+</Tabs>
+
+### Light Mode
+
+<Tabs>
+  <Tab title="Colors">
+    ```css
+    body {
+      background: #ffffff;  /* Pure white */
+      color: #18181b;       /* Dark gray */
+    }
+    
+    a {
+      color: #2563eb;       /* Darker blue */
+    }
+    
+    p, span, div, h1, h2, h3, h4, li {
+      color: #18181b;       /* Dark text */
+      background: transparent;
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Best For">
+    - **Daylight reading**: Better contrast in bright environments
+    - **Traditional feel**: Mimics physical book pages
+    - **Outdoor reading**: More visible in sunlight
+    - **E-ink simulation**: Resembles e-reader appearance
+  </Tab>
+</Tabs>
+
+<Tip>
+  Toggle theme using the **Sun/Moon** button in the top-right corner. The change applies instantly without page reload.
+</Tip>
+
+---
+
+## Navigation Methods
+
+### Page Turning
+
+<CardGroup cols={2}>
+  <Card title="Click Navigation" icon="mouse-pointer">
+    - **Left edge**: Previous page
+    - **Right edge**: Next page
+    - **Center**: Toggle TOC menu
+  </Card>
+  
+  <Card title="Keyboard Navigation" icon="keyboard">
+    - **Left Arrow**: Previous page
+    - **Right Arrow**: Next page
+    - **Up/Down**: Scroll (if page overflows)
+    - **Escape**: Close reader
+  </Card>
+</CardGroup>
+
+### Table of Contents
+
+Access the chapter list:
+
+<Steps>
+  <Step title="Open TOC">
+    Click the hamburger icon (≡) or click the center of the reading area
+  </Step>
+  
+  <Step title="Browse Chapters">
+    Scrollable list shows all chapters with titles
+  </Step>
+  
+  <Step title="Jump to Chapter">
+    Click any chapter to instantly navigate there
+  </Step>
+  
+  <Step title="Close TOC">
+    Click outside the menu or press the ≡ icon again
+  </Step>
+</Steps>
+
+```jsx
+// TOC structure
+toc = [
+  { label: "Chapter 1: The Beginning", href: "chapter1.xhtml" },
+  { label: "Chapter 2: First Steps", href: "chapter2.xhtml" },
+  // ...
+];
+```
+
+<Info>
+  The TOC is automatically parsed from the EPUB's `toc.ncx` or `nav.xhtml` file when the book loads.
+</Info>
+
+---
+
+## Reader Features
+
+### Text Reflow
+
+Content adapts to window size:
+
+- **Resize window** → Text reflows automatically
+- **Zoom in/out** → Font size adjusts (Cmd/Ctrl + +/-)
+- **Full-screen mode** → Maximizes reading area
+
+### Image Support
+
+Embedded images display correctly:
+
+- Cover images
+- Chapter illustrations
+- Diagrams and maps
+- Author photos
+
+<Note>
+  Very large images may cause slow page loads. This is a limitation of the EPUB format, not the reader.
+</Note>
+
+### Hyperlink Support
+
+- **Internal links**: Jump to footnotes, references, other chapters
+- **External links**: Open in system browser (requires confirmation)
+- **Email links**: Open in default mail client
+
+---
+
+## Progress Details
+
+### Chapter Counting
+
+Chapters are counted from the EPUB's TOC:
+
+```jsx
+// Chapter detection
+const toc = await epub.navigation.toc;
+const totalChapters = toc.length;
+const currentChapter = toc.findIndex(item => 
+  item.href === currentLocation.href
+) + 1;
+```
+
+<Warning>
+  Some EPUBs have inconsistent TOC structures (e.g., TOC entries for "Acknowledgments", "Prologue", etc.). This may cause chapter counts to include non-chapter sections.
+</Warning>
+
+### Completion Detection
+
+A book is marked "completed" when:
+
+```jsx
+readProgress[book.filename].current === readProgress[book.filename].total
+```
+
+This typically means you've reached the **last TOC entry**, not necessarily the final word of the epilogue.
+
+---
+
+## Loading States
+
+### Initial Load
+
+When opening a book:
+
+```
+⏳ Loading Book...
+
+[Spinning loader animation]
+```
+
+Typical load times:
+
+- **Small EPUBs (under 5MB)**: 1-2 seconds
+- **Medium EPUBs (5-20MB)**: 2-5 seconds
+- **Large EPUBs (over 20MB)**: 5-15 seconds
+
+<Tip>
+  Large EPUBs with many images or complex formatting take longer to parse. Be patient during the initial load.
+</Tip>
+
+### Theme Registration
+
+On first load, custom themes are registered:
+
+```jsx
+if (!themesRegisteredRef.current) {
+  rendition.themes.register('custom-theme', {
+    'body': { background: isDark ? '#09090b' : '#ffffff' },
+    'p, span': { color: isDark ? '#e4e4e7' : '#18181b' }
+  });
+  
+  themesRegisteredRef.current = true;
+  rendition.themes.select('custom-theme');
+}
+```
+
+This prevents theme conflicts and ensures consistent styling.
+
+---
+
+## Keyboard Shortcuts
+
+<CardGroup cols={2}>
+  <Card title="Navigation" icon="arrows">
+    - **Left Arrow**: Previous page
+    - **Right Arrow**: Next page
+    - **Up Arrow**: Scroll up (if overflow)
+    - **Down Arrow**: Scroll down (if overflow)
+  </Card>
+  
+  <Card title="Controls" icon="keyboard">
+    - **Escape**: Close reader
+    - **Cmd/Ctrl + +**: Zoom in (browser-level)
+    - **Cmd/Ctrl + -**: Zoom out (browser-level)
+    - **Cmd/Ctrl + 0**: Reset zoom
+  </Card>
+</CardGroup>
+
+<Note>
+  Custom keyboard shortcuts for font size, margins, and line spacing are planned for a future release.
+</Note>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Reader won't open">
+    **Check EPUB validity:**
+    
+    1. Try opening the EPUB in another reader (Calibre, Apple Books)
+    2. If it fails elsewhere too, the file may be corrupted
+    3. Re-download the novel using the Download Manager
+    
+    **Check browser console:**
+    
+    - Press F12 to open DevTools
+    - Look for errors like "Failed to fetch EPUB"
+    - Report persistent errors on GitHub
+  </Accordion>
+  
+  <Accordion title="Progress not saving">
+    **localStorage issues:**
+    
+    - Your browser's storage may be full
+    - Clear cache and cookies for the app
+    - Check if localStorage is disabled (some privacy modes)
+    
+    **Test manually:**
+    
+    ```javascript
+    // Open DevTools console and run:
+    localStorage.setItem('test', 'works');
+    console.log(localStorage.getItem('test')); // Should log "works"
+    ```
+  </Accordion>
+  
+  <Accordion title="Theme not applying">
+    This usually means:
+    
+    - Theme registration failed (check console)
+    - EPUB has inline styles overriding theme
+    - Rendition not fully loaded yet
+    
+    **Workaround:**
+    
+    1. Close and reopen the book
+    2. Toggle theme twice (dark → light → dark)
+    3. If persistent, the EPUB may have hard-coded styles
+  </Accordion>
+  
+  <Accordion title="Images not displaying">
+    - Image paths may be broken in EPUB metadata
+    - Backend isn't serving image assets correctly
+    - Network timeout during image load
+    - Try opening the EPUB in Calibre to verify images exist
+  </Accordion>
+  
+  <Accordion title="Text overflowing or cut off">
+    - Resize the window to trigger reflow
+    - Some EPUBs have fixed-width layouts (not reflowable)
+    - Try zooming out (Cmd/Ctrl + -)
+    - If persistent, the EPUB may be poorly formatted
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Future Enhancements
+
+<Info>
+  The following features are planned for future releases:
+</Info>
+
+<CardGroup cols={2}>
+  <Card title="Font Customization" icon="font">
+    - Custom font family selection
+    - Adjustable font size (without browser zoom)
+    - Line spacing control
+    - Text alignment options
+  </Card>
+  
+  <Card title="Highlights & Notes" icon="highlighter">
+    - Text highlighting in multiple colors
+    - Inline notes and annotations
+    - Bookmark specific pages
+    - Export notes as markdown
+  </Card>
+  
+  <Card title="Reading Statistics" icon="chart-bar">
+    - Time spent reading per session
+    - Pages/chapters per day
+    - Reading speed (WPM)
+    - Streak tracking
+  </Card>
+  
+  <Card title="Advanced Navigation" icon="compass">
+    - Page slider (jump to percentage)
+    - Search within book
+    - Navigate by page number
+    - Recently read chapters list
+  </Card>
+</CardGroup>
+
+---
+
+## Technical Details
+
+### EPUB Loading Process
+
+```jsx
+// Step-by-step load
+1. Fetch EPUB binary from backend
+   GET /api/library/download/{filename}
+   
+2. Load EPUB into react-reader
+   <ReactReader url={arrayBuffer} />
+   
+3. Parse EPUB structure
+   - Extract TOC
+   - Load stylesheets
+   - Parse metadata
+   
+4. Register custom themes
+   rendition.themes.register('custom-theme', styles);
+   
+5. Restore saved position (if exists)
+   setLocation(savedProgress.cfi);
+   
+6. Render first page
+```
+
+### CFI (Canonical Fragment Identifier)
+
+Example CFI:
+
+```
+epubcfi(/6/4[chap01ref]!/4/2/2[para05]/3:10)
+```
+
+Breakdown:
+
+- `/6/4[chap01ref]` → Chapter 1
+- `/4/2/2[para05]` → 5th paragraph
+- `/3:10` → 10th character in 3rd text node
+
+This allows **exact** position restoration, more precise than page numbers.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Manage Library" icon="books" href="/features/library-manager">
+    Organize your EPUB collection and track reading progress
+  </Card>
+  
+  <Card title="Download Novels" icon="download" href="/features/download-manager">
+    Scrape new content to read in the built-in reader
+  </Card>
+  
+  <Card title="Cloudflare Bypass" icon="shield" href="/advanced/cloudflare-bypass">
+    Learn about handling protected sites
+  </Card>
+  <Card title="Providers" icon="puzzle-piece" href="/advanced/providers">
+    Explore the provider plugin system
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Understand how UNS works under the hood
+  </Card>
+</CardGroup>

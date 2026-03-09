@@ -1,0 +1,453 @@
+---
+title: Building for Production
+description: Package UNS for distribution on Windows, macOS, and Linux
+icon: hammer
+---
+
+## Overview
+
+Building UNS for production involves two main steps:
+1. **Compile the Python backend** into a standalone binary
+2. **Package the Electron app** with electron-builder
+
+The final distributable includes the React frontend, Electron runtime, and Python engine bundled together.
+
+<Note>
+  Build times vary by platform. Expect 2-5 minutes for a full build on modern hardware.
+</Note>
+
+## Build Architecture
+
+The production build structure:
+
+```
+UNS.app / UNS.exe / UNS
+├── Electron App (ASAR)
+│   ├── main.js
+│   ├── preload.js
+│   └── frontend/dist/       (React build)
+└── Resources/bin/
+    └── engine               (Python binary)
+```
+
+The Python engine is placed in the app's resource directory and launched by Electron at runtime.
+
+## Building the Python Engine
+
+The Python backend must be compiled before building the Electron app.
+
+<Steps>
+  <Step title="Activate Virtual Environment">
+    <CodeGroup>
+    ```bash macOS/Linux
+    cd backend
+    source venv/bin/activate
+    ```
+    
+    ```bash Windows
+    cd backend
+    venv\Scripts\activate
+    ```
+    </CodeGroup>
+    
+    <Warning>Always activate the venv before running PyInstaller. Otherwise, it may fail to bundle dependencies.</Warning>
+  </Step>
+
+  <Step title="Run PyInstaller">
+    Compile the FastAPI app into a standalone binary:
+    
+    ```bash
+    python -m PyInstaller --onefile --windowed --name engine api.py
+    ```
+    
+    **Flags explained:**
+    - `--onefile` - Bundles everything into a single executable
+    - `--windowed` - Suppresses console window (important for desktop apps)
+    - `--name engine` - Names the output binary "engine" (or "engine.exe")
+    
+    Output location: `backend/dist/engine`
+  </Step>
+
+  <Step title="Verify the Binary">
+    Test the compiled engine manually:
+    
+    <CodeGroup>
+    ```bash macOS/Linux
+    cd dist
+    chmod +x engine  # macOS only
+    ./engine /tmp/test_output
+    ```
+    
+    ```bash Windows
+    cd dist
+    engine.exe C:\temp\test_output
+    ```
+    </CodeGroup>
+    
+    You should see:
+    ```
+    🚀 Engine starting... Data home: /tmp/test_output
+    INFO:     Started server process
+    INFO:     Uvicorn running on http://127.0.0.1:8000
+    ```
+    
+    Press Ctrl+C to stop it.
+  </Step>
+
+  <Step title="Use engine.spec for Faster Rebuilds">
+    PyInstaller generates `engine.spec` on the first run. Use it for faster subsequent builds:
+    
+    ```bash
+    python -m PyInstaller engine.spec
+    ```
+    
+    This skips dependency analysis and uses cached data.
+  </Step>
+</Steps>
+
+### Troubleshooting PyInstaller
+
+<AccordionGroup>
+  <Accordion title="ModuleNotFoundError in the binary">
+    PyInstaller may miss some imports. Add them manually to `engine.spec`:
+    
+    ```python engine.spec
+    hiddenimports=[
+        'fastapi',
+        'uvicorn.logging',
+        'uvicorn.loops.auto',
+        'ebooklib.epub',
+    ],
+    ```
+  </Accordion>
+
+  <Accordion title="Binary is too large (>100MB)">
+    This is normal for Python apps. The binary includes:
+    - Python runtime
+    - All pip packages (FastAPI, Uvicorn, ebooklib, etc.)
+    - Standard library modules
+    
+    To reduce size, use `--exclude-module` for unused packages:
+    ```bash
+    --exclude-module matplotlib --exclude-module numpy
+    ```
+  </Accordion>
+
+  <Accordion title="macOS Gatekeeper blocks the binary">
+    Sign the binary with an Apple Developer certificate or instruct users to:
+    1. Right-click the app → Open
+    2. Go to **System Preferences → Security & Privacy**
+    3. Click **Open Anyway**
+  </Accordion>
+</AccordionGroup>
+
+## Building the Electron App
+
+Once the Python engine is compiled, build the full desktop app.
+
+<Steps>
+  <Step title="Build the Frontend">
+    From the project root:
+    ```bash
+    npm run build:frontend
+    ```
+    
+    This runs:
+    1. `cd frontend && npm install` - Ensures dependencies are installed
+    2. `npm run build` - Builds React app with Vite
+    
+    Output: `frontend/dist/` (HTML, CSS, JS)
+  </Step>
+
+  <Step title="Package with Electron Builder">
+    Build the platform-specific installer:
+    
+    <CodeGroup>
+    ```bash All Platforms
+    npm run build:electron
+    ```
+    
+    ```bash Custom Target (macOS)
+    npm run build:electron -- --mac dmg
+    ```
+    
+    ```bash Custom Target (Windows)
+    npm run build:electron -- --win nsis
+    ```
+    
+    ```bash Custom Target (Linux)
+    npm run build:electron -- --linux AppImage
+    ```
+    </CodeGroup>
+    
+    Output directory: `dist_electron/`
+  </Step>
+
+  <Step title="Full Build (One Command)">
+    To build everything at once:
+    ```bash
+    npm run build
+    ```
+    
+    This runs:
+    1. `npm run build:frontend`
+    2. `npm run build:electron`
+    
+    <Warning>This does NOT rebuild the Python engine. You must rebuild `backend/dist/engine` separately if you changed `api.py`.</Warning>
+  </Step>
+</Steps>
+
+## Platform-Specific Builds
+
+### macOS
+
+**Requirements:**
+- macOS 10.13+ (to build)
+- Xcode Command Line Tools
+
+**Build targets:**
+- `dmg` - Disk image installer (recommended)
+- `pkg` - macOS installer package
+- `zip` - Zipped app bundle
+
+**Build command:**
+```bash
+npm run build:electron -- --mac dmg
+```
+
+**Output:**
+- `dist_electron/UNS-1.1.0.dmg`
+- `dist_electron/mac/UNS.app` (unpacked)
+
+**Code signing (optional):**
+```json package.json
+"build": {
+  "mac": {
+    "identity": "Developer ID Application: Your Name (TEAM_ID)",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist"
+  }
+}
+```
+
+### Windows
+
+**Requirements:**
+- Windows 7+ (to build)
+- Node.js with build tools
+
+**Build targets:**
+- `nsis` - NSIS installer (default)
+- `portable` - Portable executable
+- `zip` - Zipped app
+
+**Build command:**
+```bash
+npm run build:electron -- --win nsis
+```
+
+**Output:**
+- `dist_electron/UNS Setup 1.1.0.exe`
+- `dist_electron/win-unpacked/` (unpacked)
+
+**Code signing (optional):**
+```json package.json
+"build": {
+  "win": {
+    "certificateFile": "path/to/cert.pfx",
+    "certificatePassword": "your-password",
+    "signingHashAlgorithms": ["sha256"]
+  }
+}
+```
+
+### Linux
+
+**Requirements:**
+- Linux (any distro)
+- Build essentials installed
+
+**Build targets:**
+- `AppImage` - Universal Linux package (recommended)
+- `snap` - Snap package
+- `deb` - Debian/Ubuntu package
+- `rpm` - RedHat/Fedora package
+
+**Build command:**
+```bash
+npm run build:electron -- --linux AppImage
+```
+
+**Output:**
+- `dist_electron/UNS-1.1.0.AppImage`
+- `dist_electron/linux-unpacked/` (unpacked)
+
+## electron-builder Configuration
+
+The build configuration is in `package.json`:
+
+```json package.json
+{
+  "build": {
+    "appId": "com.universalnovelscraper.app",
+    "productName": "UNS",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "assets/icon.png",
+      "frontend/dist/**/*"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "backend/dist",
+        "to": "bin",
+        "filter": ["engine", "engine.exe"]
+      }
+    ]
+  }
+}
+```
+
+**Key settings:**
+- `files` - What gets packaged in the ASAR archive
+- `extraResources` - Files placed outside ASAR (like the Python engine)
+- `asar: true` - Compresses app files for faster loading
+
+### Accessing the Engine Path
+
+The engine location differs between development and production:
+
+```javascript main.js
+const isPackaged = app.isPackaged;
+const enginePath = isPackaged
+  ? path.join(process.resourcesPath, 'bin', 'engine')
+  : path.join(__dirname, 'backend', 'dist', 'engine');
+
+const finalPath = (isPackaged && process.platform === 'win32') 
+  ? `${enginePath}.exe` 
+  : enginePath;
+```
+
+| Environment | Path |
+|-------------|------|
+| **Development** | `<project>/backend/dist/engine` |
+| **Production (macOS)** | `UNS.app/Contents/Resources/bin/engine` |
+| **Production (Windows)** | `resources/bin/engine.exe` |
+| **Production (Linux)** | `resources/bin/engine` |
+
+## Common Build Issues
+
+<AccordionGroup>
+  <Accordion title="Engine binary not found in production">
+    Check the `extraResources` config in `package.json`:
+    ```json
+    "extraResources": [
+      {
+        "from": "backend/dist",
+        "to": "bin",
+        "filter": ["engine", "engine.exe"]
+      }
+    ]
+    ```
+    
+    Ensure `backend/dist/engine` exists before building.
+  </Accordion>
+
+  <Accordion title="App crashes immediately after launch">
+    1. Check if the Python engine starts correctly:
+       - Open the app
+       - Check Activity Monitor (macOS) or Task Manager (Windows)
+       - Look for a process named "engine"
+    
+    2. Enable logging in `main.js`:
+       ```javascript
+       pythonProcess.stderr?.on('data', (data) => {
+         console.error(`🐍 Python Error: ${data}`);
+       });
+       ```
+    
+    3. Run the app from terminal to see logs:
+       ```bash
+       # macOS
+       ./dist_electron/mac/UNS.app/Contents/MacOS/UNS
+       
+       # Linux
+       ./dist_electron/linux-unpacked/uns
+       
+       # Windows
+       .\dist_electron\win-unpacked\UNS.exe
+       ```
+  </Accordion>
+
+  <Accordion title="Build fails with 'Cannot find module'">
+    Ensure all dependencies are installed:
+    ```bash
+    npm install
+    cd frontend && npm install && cd ..
+    cd backend && pip install -r requirements.txt && cd ..
+    ```
+  </Accordion>
+
+  <Accordion title="macOS: 'UNS is damaged and can't be opened'">
+    This happens when the app isn't code-signed. Users must:
+    1. Right-click → Open
+    2. Click "Open" in the security dialog
+    
+    Or remove the quarantine flag:
+    ```bash
+    xattr -cr /Applications/UNS.app
+    ```
+  </Accordion>
+
+  <Accordion title="Windows: SmartScreen warning">
+    Unsigned Windows apps trigger SmartScreen. Users should:
+    1. Click "More info"
+    2. Click "Run anyway"
+    
+    To fix permanently, sign the app with an EV code signing certificate.
+  </Accordion>
+</AccordionGroup>
+
+## Testing the Build
+
+Before distributing, test the packaged app:
+
+<Steps>
+  <Step title="Test Basic Functionality">
+    1. Launch the app
+    2. Check if the UI loads
+    3. Navigate to Library, Download, History pages
+    4. Verify the Python engine is running (check Activity Monitor/Task Manager)
+  </Step>
+
+  <Step title="Test a Full Scrape">
+    1. Add a provider (or use a pre-installed one)
+    2. Search for a novel
+    3. Start a download
+    4. Verify chapters are being scraped
+    5. Check if the EPUB is generated in the output folder
+  </Step>
+
+  <Step title="Test on a Clean Machine">
+    The best test is on a machine without development tools:
+    - No Node.js, Python, or dev tools installed
+    - Fresh user account (no leftover config)
+    - Different OS version (e.g., macOS 12 if you built on macOS 14)
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Development Setup" icon="wrench" href="/development/setup">
+    Return to setup guide for development mode
+  </Card>
+  <Card title="Project Structure" icon="folder-tree" href="/development/project-structure">
+    Learn about the codebase organization
+  </Card>
+</CardGroup>

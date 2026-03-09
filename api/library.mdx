@@ -1,0 +1,475 @@
+---
+title: 'Library Management'
+description: 'API endpoints for managing your EPUB collection'
+icon: 'books'
+---
+
+## Get Library
+
+<api method="GET" endpoint="/api/library" />
+
+Retrieves a list of all EPUB files in the library with extracted metadata.
+
+### Response
+
+Returns an array of EPUB entries:
+
+<ResponseField name="filename" type="string">
+  The EPUB filename (e.g., `a1b2c3d4-e5f6-7890-abcd-ef1234567890.epub`)
+</ResponseField>
+
+<ResponseField name="title" type="string">
+  The novel title extracted from EPUB metadata (Dublin Core)
+</ResponseField>
+
+<ResponseField name="author" type="string">
+  The author name extracted from EPUB metadata
+</ResponseField>
+
+### Behavior
+
+1. **Scans the `epubs/` directory** for all `.epub` files
+2. **Reads each EPUB** using ebooklib
+3. **Extracts metadata** from Dublin Core tags:
+   - `DC:title` → title
+   - `DC:creator` → author
+4. **Falls back** to filename if metadata reading fails
+5. **Returns sorted array** of entries
+
+### Example Request
+
+```bash
+curl http://127.0.0.1:8000/api/library
+```
+
+### Example Response
+
+```json
+[
+  {
+    "filename": "a1b2c3d4-e5f6-7890-abcd-ef1234567890.epub",
+    "title": "Epic Fantasy Novel",
+    "author": "Jane Doe"
+  },
+  {
+    "filename": "b2c3d4e5-f6a7-8901-bcde-f12345678901.epub",
+    "title": "Mystery Thriller",
+    "author": "John Smith"
+  },
+  {
+    "filename": "c3d4e5f6-a7b8-9012-cdef-123456789012.epub",
+    "title": "Romance Novel",
+    "author": "Unknown Author"
+  }
+]
+```
+
+### JavaScript Example
+
+```javascript
+const getLibrary = async () => {
+  const response = await fetch('http://127.0.0.1:8000/api/library');
+  const epubs = await response.json();
+  
+  console.log(`Library contains ${epubs.length} books`);
+  
+  epubs.forEach(book => {
+    console.log(`"${book.title}" by ${book.author}`);
+  });
+  
+  return epubs;
+};
+```
+
+### Python Example
+
+```python
+import requests
+
+def get_library():
+    response = requests.get('http://127.0.0.1:8000/api/library')
+    epubs = response.json()
+    
+    print(f"Library contains {len(epubs)} books\n")
+    
+    for book in epubs:
+        print(f'Title: {book["title"]}')
+        print(f'Author: {book["author"]}')
+        print(f'File: {book["filename"]}\n')
+    
+    return epubs
+```
+
+### Metadata Fallback
+
+If EPUB metadata cannot be read:
+
+```json
+{
+  "filename": "corrupted-file.epub",
+  "title": "corrupted file",
+  "author": "Unknown Author"
+}
+```
+
+The title is derived from the filename (without `.epub`, underscores → spaces).
+
+## Get Cover Image
+
+<api method="GET" endpoint="/api/cover/{filename}" />
+
+Extracts and returns the cover image from an EPUB file.
+
+### Path Parameters
+
+<ParamField path="filename" type="string" required>
+  The EPUB filename (URL-encoded if it contains special characters)
+</ParamField>
+
+### Response
+
+Returns the cover image with:
+- **Content-Type:** Detected from image (e.g., `image/jpeg`, `image/png`, `image/webp`)
+- **Body:** Raw image bytes
+
+### Behavior
+
+1. **URL-decodes** the filename (handles special chars like commas)
+2. **Opens EPUB** using ebooklib
+3. **Finds first image** with `image/*` media type
+4. **Returns image data** with correct MIME type
+5. **Returns 404** if no images exist in EPUB
+
+### Example Request
+
+```bash
+curl http://127.0.0.1:8000/api/cover/a1b2c3d4-e5f6-7890-abcd-ef1234567890.epub \
+  --output cover.jpg
+```
+
+### JavaScript Example
+
+```javascript
+const getCover = (filename) => {
+  const encodedFilename = encodeURIComponent(filename);
+  return `http://127.0.0.1:8000/api/cover/${encodedFilename}`;
+};
+
+// Use in img tag
+const CoverImage = ({ epub }) => (
+  <img 
+    src={getCover(epub.filename)} 
+    alt={epub.title}
+    onError={(e) => e.target.src = '/placeholder-cover.png'}
+  />
+);
+```
+
+### Python Example
+
+```python
+import requests
+from urllib.parse import quote
+
+def download_cover(filename, output_path):
+    encoded_filename = quote(filename)
+    url = f"http://127.0.0.1:8000/api/cover/{encoded_filename}"
+    
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        # Determine file extension from content-type
+        content_type = response.headers.get('content-type')
+        ext = content_type.split('/')[-1]  # e.g., "jpeg"
+        
+        output_file = f"{output_path}/cover.{ext}"
+        with open(output_file, 'wb') as f:
+            f.write(response.content)
+        
+        print(f"Cover saved: {output_file}")
+        return output_file
+    else:
+        print("No cover found")
+        return None
+```
+
+### Error Response
+
+```json
+{
+  "detail": "No cover found"
+}
+```
+
+HTTP Status: `404 Not Found`
+
+This occurs when:
+- EPUB has no embedded images
+- EPUB file is corrupted
+- Cover extraction fails
+
+<Warning>
+  Not all EPUBs have covers. Always provide a fallback placeholder image in your UI.
+</Warning>
+
+## Download from Library
+
+<api method="GET" endpoint="/api/library/download/{filename}" />
+
+Downloads an EPUB from the library with a human-readable filename based on the book's title.
+
+### Path Parameters
+
+<ParamField path="filename" type="string" required>
+  The EPUB filename (URL-encoded)
+</ParamField>
+
+### Response
+
+Returns the EPUB file with:
+- **Content-Type:** `application/epub+zip`
+- **Filename:** Sanitized book title (e.g., `Epic_Fantasy_Novel.epub`)
+
+### Behavior
+
+1. **URL-decodes** the filename
+2. **Locates EPUB** in `epubs/` directory
+3. **Reads metadata** to get book title
+4. **Sanitizes title** for use as filename
+5. **Serves file** with download headers
+
+### Example Request
+
+```bash
+curl -O http://127.0.0.1:8000/api/library/download/a1b2c3d4-e5f6-7890-abcd-ef1234567890.epub
+```
+
+### JavaScript Example
+
+```javascript
+const exportEpub = async (filename) => {
+  const encodedFilename = encodeURIComponent(filename);
+  const response = await fetch(
+    `http://127.0.0.1:8000/api/library/download/${encodedFilename}`
+  );
+  
+  if (!response.ok) {
+    throw new Error('File not found');
+  }
+  
+  // Extract download filename from Content-Disposition
+  const disposition = response.headers.get('content-disposition');
+  const downloadName = disposition.match(/filename="(.+)"/)[1];
+  
+  // Download the file
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = downloadName;
+  a.click();
+  window.URL.revokeObjectURL(url);
+  
+  console.log(`Exported: ${downloadName}`);
+};
+```
+
+### Python Example
+
+```python
+import requests
+from urllib.parse import quote
+
+def export_epub(filename, output_dir):
+    encoded_filename = quote(filename)
+    url = f"http://127.0.0.1:8000/api/library/download/{encoded_filename}"
+    
+    response = requests.get(url, stream=True)
+    
+    if response.status_code == 200:
+        # Extract suggested filename
+        disposition = response.headers.get('content-disposition')
+        export_name = disposition.split('filename=')[1].strip('"')
+        
+        output_path = f"{output_dir}/{export_name}"
+        
+        with open(output_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        print(f"Exported: {output_path}")
+        return output_path
+    else:
+        raise Exception(f"Export failed: {response.json()['detail']}")
+```
+
+### Filename Sanitization
+
+The downloaded filename is sanitized:
+- Special characters removed: `/*?:"|<>`
+- Spaces replaced with underscores
+- Extension preserved as `.epub`
+
+**Example:**
+- Book title: `The Legend: Part 1 (2024)`
+- Download name: `The_Legend_Part_1_(2024).epub`
+
+## Delete from Library
+
+<api method="DELETE" endpoint="/api/library/{filename}" />
+
+Permanently deletes an EPUB file from the library.
+
+### Path Parameters
+
+<ParamField path="filename" type="string" required>
+  The EPUB filename to delete (URL-encoded)
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Returns `"deleted"` on success
+</ResponseField>
+
+### Behavior
+
+1. **URL-decodes** the filename
+2. **Checks if file exists** in `epubs/` directory
+3. **Deletes file** from disk
+4. **Returns 404** if file not found
+
+<Warning>
+  This operation is permanent and cannot be undone. The EPUB file is completely removed from the filesystem.
+</Warning>
+
+### Example Request
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/api/library/a1b2c3d4-e5f6-7890-abcd-ef1234567890.epub
+```
+
+### JavaScript Example
+
+```javascript
+const deleteEpub = async (filename) => {
+  const encodedFilename = encodeURIComponent(filename);
+  
+  if (!confirm(`Delete "${filename}"? This cannot be undone.`)) {
+    return false;
+  }
+  
+  const response = await fetch(
+    `http://127.0.0.1:8000/api/library/${encodedFilename}`,
+    { method: 'DELETE' }
+  );
+  
+  if (!response.ok) {
+    throw new Error('Delete failed');
+  }
+  
+  const result = await response.json();
+  console.log(`Deleted: ${filename}`);
+  return true;
+};
+```
+
+### Python Example
+
+```python
+import requests
+from urllib.parse import quote
+
+def delete_epub(filename):
+    encoded_filename = quote(filename)
+    url = f"http://127.0.0.1:8000/api/library/{encoded_filename}"
+    
+    response = requests.delete(url)
+    
+    if response.status_code == 200:
+        print(f"Deleted: {filename}")
+        return True
+    elif response.status_code == 404:
+        print(f"File not found: {filename}")
+        return False
+    else:
+        raise Exception(f"Delete failed: {response.json()['detail']}")
+```
+
+### Error Response
+
+```json
+{
+  "detail": "File not found"
+}
+```
+
+HTTP Status: `404 Not Found`
+
+## Library Workflow Example
+
+Complete library management flow:
+
+```javascript
+const LibraryManager = {
+  async list() {
+    const response = await fetch('http://127.0.0.1:8000/api/library');
+    return await response.json();
+  },
+  
+  getCoverUrl(filename) {
+    return `http://127.0.0.1:8000/api/cover/${encodeURIComponent(filename)}`;
+  },
+  
+  async export(filename) {
+    const encodedFilename = encodeURIComponent(filename);
+    const response = await fetch(
+      `http://127.0.0.1:8000/api/library/download/${encodedFilename}`
+    );
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    
+    window.URL.revokeObjectURL(url);
+  },
+  
+  async delete(filename) {
+    const encodedFilename = encodeURIComponent(filename);
+    const response = await fetch(
+      `http://127.0.0.1:8000/api/library/${encodedFilename}`,
+      { method: 'DELETE' }
+    );
+    return response.ok;
+  }
+};
+
+// Usage
+const books = await LibraryManager.list();
+books.forEach(book => {
+  console.log(`${book.title} by ${book.author}`);
+  console.log(`Cover: ${LibraryManager.getCoverUrl(book.filename)}`);
+});
+
+// Export and delete
+await LibraryManager.export(books[0].filename);
+await LibraryManager.delete(books[0].filename);
+```
+
+## URL Encoding Requirements
+
+Always URL-encode filenames that may contain special characters:
+
+```javascript
+// ❌ Wrong - will fail with commas, spaces, etc.
+fetch(`http://127.0.0.1:8000/api/cover/Novel, Part 1.epub`);
+
+// ✅ Correct
+const filename = 'Novel, Part 1.epub';
+fetch(`http://127.0.0.1:8000/api/cover/${encodeURIComponent(filename)}`);
+```
+
+The backend automatically URL-decodes using `urllib.parse.unquote()`.

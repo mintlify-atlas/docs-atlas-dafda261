@@ -1,0 +1,325 @@
+---
+title: Development Setup
+description: Set up your development environment to contribute to Universal Novel Scraper
+icon: wrench
+---
+
+## Overview
+
+This guide will help you set up your local development environment for contributing to UNS. The project uses a multi-layer architecture with Electron, React, and Python components.
+
+<Warning>
+  **Platform Requirements**: While UNS runs on Windows, macOS, and Linux, some development steps may vary by platform. Platform-specific instructions are provided where applicable.
+</Warning>
+
+## Prerequisites
+
+Before starting, ensure you have the following installed:
+
+<Steps>
+  <Step title="Install Node.js 18+">
+    Download and install Node.js from [nodejs.org](https://nodejs.org/). Verify installation:
+    
+    ```bash
+    node --version
+    npm --version
+    ```
+    
+    <Note>The project uses npm for package management. While yarn/pnpm may work, npm is recommended for consistency.</Note>
+  </Step>
+
+  <Step title="Install Python 3.11+">
+    Download Python from [python.org](https://www.python.org/) or use your system's package manager.
+    
+    <CodeGroup>
+    ```bash macOS (Homebrew)
+    brew install python@3.11
+    ```
+    
+    ```bash Linux (apt)
+    sudo apt update
+    sudo apt install python3.11 python3.11-venv python3-pip
+    ```
+    
+    ```bash Windows
+    # Download installer from python.org
+    # Make sure to check "Add Python to PATH"
+    ```
+    </CodeGroup>
+    
+    Verify installation:
+    ```bash
+    python --version  # or python3 --version
+    pip --version     # or pip3 --version
+    ```
+  </Step>
+
+  <Step title="Install Platform-Specific Tools">
+    **macOS (Apple Silicon)**
+    
+    Install Xcode Command Line Tools for native module compilation:
+    ```bash
+    xcode-select --install
+    ```
+    
+    **Linux**
+    
+    Install build essentials:
+    ```bash
+    sudo apt install build-essential
+    ```
+    
+    **Windows**
+    
+    Install Windows Build Tools (optional but recommended):
+    ```bash
+    npm install -g windows-build-tools
+    ```
+  </Step>
+</Steps>
+
+## Clone the Repository
+
+<Steps>
+  <Step title="Clone from GitHub">
+    ```bash
+    git clone https://github.com/OsamaTab/UNS.git
+    cd UNS
+    ```
+  </Step>
+
+  <Step title="Install Root Dependencies">
+    Install Electron and build tools:
+    ```bash
+    npm install
+    ```
+    
+    This installs:
+    - `electron` - Desktop app framework
+    - `electron-builder` - Packaging tool
+    - `concurrently` - Run multiple commands
+    - `wait-on` - Wait for services to be ready
+  </Step>
+
+  <Step title="Install Frontend Dependencies">
+    The frontend is a separate React app built with Vite:
+    ```bash
+    cd frontend
+    npm install
+    cd ..
+    ```
+    
+    Key dependencies:
+    - React 19 + React Router
+    - Tailwind CSS for styling
+    - Lucide React for icons
+    - ePub.js for the built-in reader
+  </Step>
+
+  <Step title="Set Up Python Backend">
+    Create a virtual environment and install dependencies:
+    
+    <CodeGroup>
+    ```bash macOS/Linux
+    cd backend
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+    
+    ```bash Windows
+    cd backend
+    python -m venv venv
+    venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+    </CodeGroup>
+    
+    The `requirements.txt` includes:
+    - `fastapi` - API framework
+    - `uvicorn` - ASGI server
+    - `botasaurus` - Web automation utilities
+    - `ebooklib` - EPUB generation
+    - `pyinstaller` - Python to binary compiler
+    - `pydantic` - Data validation
+    - `requests` - HTTP client
+  </Step>
+</Steps>
+
+## Running in Development Mode
+
+<Steps>
+  <Step title="Build the Python Engine">
+    Before running the app, you need to compile the Python backend into a standalone binary.
+    
+    <Note>This step is required even in development mode because Electron expects a compiled engine binary.</Note>
+    
+    ```bash
+    cd backend
+    # Make sure your venv is activated!
+    python -m PyInstaller --onefile --windowed --name engine api.py
+    ```
+    
+    This creates `backend/dist/engine` (or `engine.exe` on Windows).
+    
+    **macOS Users**: Make the binary executable:
+    ```bash
+    chmod +x dist/engine
+    ```
+  </Step>
+
+  <Step title="Start Development Mode">
+    From the project root:
+    ```bash
+    npm run dev
+    ```
+    
+    This command does the following:
+    1. Starts the Vite dev server on `http://localhost:5173`
+    2. Waits for the dev server to be ready
+    3. Launches Electron pointing to the dev server
+    4. Electron automatically starts the Python engine
+    
+    <Note>The first launch may take 10-15 seconds as Electron waits for the Python engine to boot.</Note>
+  </Step>
+
+  <Step title="Verify Everything Works">
+    Once the app launches:
+    
+    1. Check the terminal for `🐍 Python:` logs confirming the engine started
+    2. The UI should load without errors
+    3. Open DevTools (Cmd/Ctrl + Shift + I) to check for console errors
+    4. Navigate to different pages (Library, Download, History) to ensure routing works
+  </Step>
+</Steps>
+
+## Development Scripts
+
+The following npm scripts are available:
+
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Start full development mode (frontend + Electron) |
+| `npm run start` | Run Electron with production build (no hot reload) |
+| `npm run start:frontend` | Start only the Vite dev server |
+| `npm run start:electron` | Start only Electron (expects frontend running) |
+| `npm run build` | Build frontend and package Electron app |
+| `npm run build:frontend` | Build only the frontend |
+| `npm run build:electron` | Package only the Electron app |
+
+### Frontend Scripts
+
+From the `frontend/` directory:
+
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Start Vite dev server on port 5173 |
+| `npm run build` | Build production frontend to `frontend/dist/` |
+| `npm run preview` | Preview production build locally |
+
+## Development Workflow
+
+### Making Frontend Changes
+
+1. Run `npm run dev` from the project root
+2. Edit files in `frontend/src/`
+3. Changes hot-reload automatically in Electron
+4. Check the browser DevTools for errors
+
+### Making Backend Changes
+
+1. Edit `backend/api.py`
+2. Rebuild the engine:
+   ```bash
+   cd backend
+   source venv/bin/activate  # or venv\Scripts\activate on Windows
+   python -m PyInstaller engine.spec
+   ```
+3. Restart the Electron app
+
+<Note>Using `engine.spec` is faster for rebuilds as it caches dependencies.</Note>
+
+### Making Main Process Changes
+
+1. Edit `main.js` or `preload.js`
+2. Restart Electron (Cmd/Ctrl + Q and re-run `npm run dev`)
+3. Changes to main process files require a full restart
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Engine not starting on macOS">
+    Make the binary executable:
+    ```bash
+    chmod +x ./backend/dist/engine
+    ```
+    
+    If you get a security warning, go to **System Preferences → Security & Privacy** and click "Allow Anyway".
+  </Accordion>
+
+  <Accordion title="Port 5173 already in use">
+    Kill the process using the port:
+    ```bash
+    # macOS/Linux
+    lsof -ti:5173 | xargs kill -9
+    
+    # Windows
+    netstat -ano | findstr :5173
+    taskkill /PID <PID> /F
+    ```
+  </Accordion>
+
+  <Accordion title="PyInstaller import errors">
+    Ensure PyInstaller is running inside the activated virtual environment:
+    ```bash
+    which python  # Should point to venv/bin/python
+    pip list | grep fastapi  # Should show installed packages
+    ```
+    
+    If packages are missing, reinstall:
+    ```bash
+    pip install -r requirements.txt
+    ```
+  </Accordion>
+
+  <Accordion title="Electron shows blank screen">
+    1. Check if the Vite dev server is running on port 5173
+    2. Open DevTools and check the Console tab for errors
+    3. Verify `ELECTRON_START_URL` is set correctly:
+       ```bash
+       echo $ELECTRON_START_URL  # Should be http://localhost:5173
+       ```
+  </Accordion>
+
+  <Accordion title="Module not found errors">
+    Try reinstalling dependencies:
+    ```bash
+    # Root
+    rm -rf node_modules package-lock.json
+    npm install
+    
+    # Frontend
+    cd frontend
+    rm -rf node_modules package-lock.json
+    npm install
+    
+    # Backend
+    cd ../backend
+    rm -rf venv
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building the App" icon="hammer" href="/development/building">
+    Learn how to create production builds for distribution
+  </Card>
+  <Card title="Project Structure" icon="folder-tree" href="/development/project-structure">
+    Understand the codebase architecture and file organization
+  </Card>
+</CardGroup>

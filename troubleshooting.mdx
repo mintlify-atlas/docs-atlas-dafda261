@@ -1,0 +1,237 @@
+---
+title: 'Troubleshooting'
+description: 'Common issues and solutions for Universal Novel Scraper'
+icon: 'wrench'
+---
+
+## Common Issues
+
+This guide covers the most frequent problems users encounter and their solutions.
+
+<Accordion title="Engine Not Starting (macOS)">
+  **Problem:** The Python backend fails to start, or you see an error about permissions.
+
+  **Solution:**
+  
+  Make the engine binary executable:
+  
+  ```bash
+  chmod +x ./backend/dist/engine
+  ```
+  
+  If you're running from a packaged app, check the app permissions in System Preferences > Security & Privacy.
+  
+  **Additional Steps:**
+  - Ensure you have Xcode Command Line Tools installed: `xcode-select --install`
+  - For Apple Silicon Macs, verify the binary was built for the correct architecture
+</Accordion>
+
+<Accordion title="Engine Not Starting (Windows)">
+  **Problem:** The engine.exe process fails to launch or crashes immediately.
+
+  **Solution:**
+  
+  1. Check Windows Defender hasn't quarantined the executable
+  2. Run the app as Administrator (right-click > Run as administrator)
+  3. Install Visual C++ Redistributable if missing
+  4. Check the app's userData folder for crash logs:
+     - `%APPDATA%\universal-novel-scraper\`
+</Accordion>
+
+<Accordion title="PyInstaller Import Errors">
+  **Problem:** When building the engine, you get module import errors.
+
+  **Solution:**
+  
+  Ensure PyInstaller runs **inside the virtual environment** with all dependencies:
+  
+  ```bash
+  cd backend
+  source venv/bin/activate  # or venv\Scripts\activate on Windows
+  pip install -r requirements.txt
+  python -m PyInstaller --onefile --windowed --name engine api.py
+  ```
+  
+  Verify these packages are installed:
+  - `fastapi`
+  - `uvicorn`
+  - `ebooklib`
+  - `pydantic`
+  - `requests`
+</Accordion>
+
+<Accordion title="Scraper Not Detecting Chapters">
+  **Problem:** The scraper starts but finds 0 chapters or stops after the first one.
+
+  **Solution:**
+  
+  1. **Check the provider script** - Make sure you have the correct provider installed for your target site
+  2. **Try manual mode** - Enable "Show Browser Window" in Settings to see what's happening
+  3. **Cloudflare Protection** - Enable "Cloudflare Bypass" mode and manually solve challenges
+  4. **Site Changes** - The website may have changed its HTML structure. Check for provider updates in the Marketplace
+  
+  <Warning>
+    If a provider consistently fails, it may be outdated. Community providers are maintained independently and may need updates when sites change their layouts.
+  </Warning>
+</Accordion>
+
+<Accordion title="EPUB Generation Fails">
+  **Problem:** Chapters scrape successfully but EPUB creation fails.
+
+  **Solution:**
+  
+  1. Check the backend logs for specific errors
+  2. Verify there's sufficient disk space in the userData directory
+  3. Ensure chapter data isn't corrupted:
+     ```bash
+     # Check the progress file
+     cat ~/Library/Application\ Support/universal-novel-scraper/output/jobs/[job_id]_progress.jsonl
+     ```
+  4. Try finalizing manually via the History tab
+  
+  **Common Causes:**
+  - Invalid cover image format
+  - Special characters in novel title
+  - Corrupted chapter data
+</Accordion>
+
+<Accordion title="Cloudflare Challenges Keep Appearing">
+  **Problem:** Every chapter triggers a Cloudflare challenge, slowing down the scrape.
+
+  **Solution:**
+  
+  1. Enable "Cloudflare Bypass Mode" in the Download settings
+  2. Increase the delay between chapters (Settings > Scraper Timing)
+  3. Use the "Show Browser Window" option to manually solve challenges
+  4. Some sites require manual cookie authentication - solve one challenge, then scraping should work
+  
+  **Tips:**
+  - Cloudflare learns from your behavior - random delays help
+  - Don't scrape too fast - use 2-5 second delays
+  - Keep the browser window focused when solving challenges
+</Accordion>
+
+<Accordion title="App Won't Update Providers">
+  **Problem:** Clicking "Install" or "Update" on providers does nothing.
+
+  **Solution:**
+  
+  1. Check your internet connection
+  2. Verify the provider repository URL is accessible
+  3. Clear the provider cache:
+     - Close the app
+     - Delete `providers/` folder in userData
+     - Restart and reinstall providers
+  4. Check browser console for errors (View > Toggle Developer Tools)
+</Accordion>
+
+<Accordion title="Downloaded EPUB Won't Open">
+  **Problem:** The EPUB file is created but won't open in readers.
+
+  **Solution:**
+  
+  1. Verify file integrity - check file size (should be > 10KB)
+  2. Validate with EPUB validator tools like [EPUBCheck](https://www.w3.org/publishing/epubcheck/)
+  3. Try different EPUB readers (Calibre, Apple Books, Google Play Books)
+  4. Re-download from Library > Export
+  
+  **Known Issues:**
+  - Some readers don't support all cover image formats
+  - Very long chapter titles may cause formatting issues
+</Accordion>
+
+<Accordion title="Port 8000 Already in Use">
+  **Problem:** Backend fails to start because port 8000 is occupied.
+
+  **Solution:**
+  
+  Find and kill the process using port 8000:
+  
+  **macOS/Linux:**
+  ```bash
+  lsof -ti:8000 | xargs kill -9
+  ```
+  
+  **Windows:**
+  ```powershell
+  netstat -ano | findstr :8000
+  taskkill /PID [PID_NUMBER] /F
+  ```
+  
+  Or modify `backend/api.py` to use a different port and update the frontend API calls.
+</Accordion>
+
+## Platform-Specific Issues
+
+### macOS
+
+<Accordion title="Gatekeeper Blocking App">
+  **Problem:** "App can't be opened because it is from an unidentified developer."
+  
+  **Solution:**
+  1. Right-click the app > Open
+  2. Click "Open" in the dialog
+  3. Or disable Gatekeeper temporarily:
+     ```bash
+     sudo spctl --master-disable
+     ```
+</Accordion>
+
+### Windows
+
+<Accordion title="Windows Defender SmartScreen">
+  **Problem:** "Windows protected your PC" warning appears.
+  
+  **Solution:**
+  1. Click "More info"
+  2. Click "Run anyway"
+  3. Or add exception in Windows Security settings
+</Accordion>
+
+### Linux
+
+<Accordion title="Missing Dependencies">
+  **Problem:** App won't start due to missing system libraries.
+  
+  **Solution:**
+  
+  Install required packages:
+  
+  **Ubuntu/Debian:**
+  ```bash
+  sudo apt-get install libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 xdg-utils libatspi2.0-0 libdrm2 libgbm1 libxcb-dri3-0
+  ```
+  
+  **Fedora:**
+  ```bash
+  sudo dnf install gtk3 libnotify nss libXScrnSaver libXtst xdg-utils at-spi2-atk libdrm mesa-libgbm libxcb
+  ```
+</Accordion>
+
+## Debug Mode
+
+For advanced troubleshooting, enable debug logging:
+
+1. Open Developer Tools: View > Toggle Developer Tools
+2. Check Console tab for errors
+3. Network tab shows API calls to backend
+4. In main.js, backend stdout/stderr logs appear in terminal
+
+## Getting Help
+
+If your issue isn't listed here:
+
+1. Check [GitHub Issues](https://github.com/OsamaTab/UNS/issues) for similar problems
+2. Open a new issue with:
+   - Operating system and version
+   - App version
+   - Complete error messages
+   - Steps to reproduce
+3. Include logs from:
+   - Developer console
+   - Backend engine output
+   - userData directory logs
+
+<Warning>
+  Never share personal information or authentication tokens when reporting issues.
+</Warning>

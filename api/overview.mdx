@@ -1,0 +1,233 @@
+---
+title: 'API Overview'
+description: 'Introduction to the Universal Novel Scraper REST API'
+icon: 'square-terminal'
+---
+
+## Introduction
+
+The Universal Novel Scraper backend exposes a **FastAPI** REST API that handles all data persistence, EPUB generation, and library management. The API runs locally on `http://127.0.0.1:8000` and communicates with the Electron frontend via HTTP.
+
+<Warning>
+  This API is designed for local-only use and has no authentication. Do not expose it to external networks.
+</Warning>
+
+## Architecture
+
+The backend uses a **sidecar pattern**:
+
+```
+Electron Frontend → HTTP Requests → FastAPI Backend
+                                    ↓
+                              File System Storage
+                              ├── jobs/ (progress data)
+                              ├── epubs/ (generated books)
+                              └── history/ (metadata)
+```
+
+## Base URL
+
+```
+http://127.0.0.1:8000
+```
+
+All endpoints are prefixed with `/api/` except `/api/health`.
+
+## Storage Structure
+
+The backend organizes data in the `userData/output/` directory:
+
+| Directory | Purpose |
+|-----------|----------|
+| `history/` | Job metadata and scrape state |
+| `jobs/` | Chapter progress files (`.jsonl` format) |
+| `epubs/` | Generated EPUB files |
+
+## Key Concepts
+
+### Job ID
+
+Each scraping job is identified by a unique `job_id` (UUID v4). This ID is used to:
+- Track progress across chapters
+- Store chapter data in `{job_id}_progress.jsonl`
+- Name the final EPUB as `{job_id}.epub`
+- Associate metadata in the history system
+
+### Progress Files
+
+Chapter data is stored in **JSONL** (JSON Lines) format:
+
+```json
+["Chapter 1: The Beginning", ["Paragraph 1", "Paragraph 2", ...]]
+["Chapter 2: The Journey", ["Paragraph 1", "Paragraph 2", ...]]
+```
+
+Each line represents one chapter with its title and content array.
+
+### History System
+
+The `jobs_history.json` file tracks all scraping jobs:
+
+```json
+{
+  "uuid-here": {
+    "novel_name": "My Novel",
+    "author": "Unknown",
+    "status": "processing",
+    "chapters_count": 42,
+    "start_url": "https://...",
+    "sourceId": "allnovel",
+    "last_updated": "1234567890.123"
+  }
+}
+```
+
+## API Endpoints
+
+The API is organized into functional categories:
+
+<CardGroup cols={2}>
+  <Card title="Chapters" icon="book-open" href="/api/chapters">
+    Save and manage chapter data during scraping
+  </Card>
+  
+  <Card title="EPUB Generation" icon="file" href="/api/epub">
+    Finalize and download EPUB files
+  </Card>
+  
+  <Card title="Library" icon="books" href="/api/library">
+    Manage your EPUB collection
+  </Card>
+  
+  <Card title="History" icon="clock-rotate-left" href="/api/history">
+    Track scraping progress and status
+  </Card>
+</CardGroup>
+
+## Common Response Patterns
+
+### Success Response
+
+```json
+{
+  "status": "ok",
+  "job_id": "uuid-here"
+}
+```
+
+### Error Response
+
+HTTP error codes are used with JSON error details:
+
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+Common status codes:
+- `400` - Bad Request (missing parameters)
+- `404` - Not Found (job/file doesn't exist)
+- `500` - Internal Server Error
+
+## Health Check
+
+Verify the backend is running:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+```
+
+```json
+{
+  "status": "ok",
+  "version": "1.0.0"
+}
+```
+
+## CORS Configuration
+
+The API allows all origins for local development:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+## Request Examples
+
+### Using curl
+
+```bash
+# Get scraping history
+curl http://127.0.0.1:8000/api/history
+
+# Save a chapter
+curl -X POST http://127.0.0.1:8000/api/save-chapter \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "test-uuid",
+    "chapter_title": "Chapter 1",
+    "content": ["Paragraph 1", "Paragraph 2"],
+    "novel_name": "Test Novel"
+  }'
+```
+
+### Using JavaScript (Frontend)
+
+```javascript
+// Get library
+const response = await fetch('http://127.0.0.1:8000/api/library');
+const epubs = await response.json();
+
+// Finalize EPUB
+await fetch('http://127.0.0.1:8000/api/finalize-epub', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    job_id: 'uuid-here',
+    novel_name: 'My Novel',
+    author: 'Author Name',
+    cover_data: 'base64-or-url'
+  })
+});
+```
+
+### Using Python
+
+```python
+import requests
+
+# Check status
+response = requests.get('http://127.0.0.1:8000/api/status/uuid-here')
+status_data = response.json()
+print(f"Chapters scraped: {status_data['chapters_count']}")
+
+# Delete a novel
+requests.delete('http://127.0.0.1:8000/api/novel/uuid-here')
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Chapter API" icon="book-open" href="/api/chapters">
+    Learn how to save chapter data
+  </Card>
+  
+  <Card title="EPUB API" icon="file" href="/api/epub">
+    Generate and download EPUBs
+  </Card>
+  
+  <Card title="IPC Channels" icon="tower-broadcast" href="/api/ipc-channels">
+    Understand Electron IPC communication
+  </Card>
+  
+  <Card title="Library API" icon="books" href="/api/library">
+    Manage your EPUB collection
+  </Card>
+</CardGroup>

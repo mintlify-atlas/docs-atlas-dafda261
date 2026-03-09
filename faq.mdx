@@ -1,0 +1,249 @@
+---
+title: 'Frequently Asked Questions'
+description: 'Common questions about Universal Novel Scraper'
+icon: 'circle-question'
+---
+
+## General Questions
+
+<Accordion title="What is Universal Novel Scraper?">
+  Universal Novel Scraper (UNS) is a desktop application that scrapes web novels from various websites and converts them into professionally formatted EPUB books. It uses Electron's built-in Chromium browser to scrape pages like a real user, bypassing most bot protections.
+</Accordion>
+
+<Accordion title="What platforms are supported?">
+  UNS runs on:
+  - **Windows** 10 and later
+  - **macOS** 10.13 (High Sierra) and later (both Intel and Apple Silicon)
+  - **Linux** distributions with GTK 3 support
+</Accordion>
+
+<Accordion title="Is UNS free to use?">
+  Yes, UNS is free for personal use under the Creative Commons Attribution-NonCommercial 4.0 license. However, commercial use is prohibited without explicit permission.
+</Accordion>
+
+<Accordion title="Do I need to install Python or Node.js?">
+  No. The packaged releases include everything needed to run the app. Python and Node.js are only required if you're building from source code.
+</Accordion>
+
+## Usage Questions
+
+<Accordion title="How do I add support for a new website?">
+  UNS uses a provider system. To add a new site:
+  
+  1. Go to the **Marketplace** tab
+  2. Browse community providers
+  3. Click **Install** on the provider for your target site
+  
+  If no provider exists, you can create one:
+  - Providers are JavaScript files that define scraping logic
+  - See the [Provider Development Guide](/customize/providers) for details
+  - Share your provider with the community!
+</Accordion>
+
+<Accordion title="Can I pause and resume downloads?">
+  Yes! You can:
+  - Click **Stop** during scraping to pause
+  - Find paused downloads in the **History** tab
+  - Click **Resume** to continue from where you left off
+  
+  Progress is automatically saved after each chapter.
+</Accordion>
+
+<Accordion title="How do I handle Cloudflare-protected sites?">
+  Enable **Cloudflare Bypass Mode** in the download settings:
+  
+  1. Check "Enable Cloudflare Bypass"
+  2. When a challenge appears, the browser window will show automatically
+  3. Solve the challenge manually (captcha, checkbox, etc.)
+  4. Scraping will continue automatically once solved
+  
+  Tips:
+  - Use longer delays between chapters (2-5 seconds)
+  - Keep the browser window focused when solving challenges
+  - Some sites only require solving once per session
+</Accordion>
+
+<Accordion title="Where are my EPUB files saved?">
+  EPUB files are stored in the app's userData directory:
+  
+  - **Windows:** `%APPDATA%\universal-novel-scraper\output\epubs\`
+  - **macOS:** `~/Library/Application Support/universal-novel-scraper/output/epubs/`
+  - **Linux:** `~/.config/universal-novel-scraper/output/epubs/`
+  
+  You can also:
+  - Open the folder from Library > Open Output Folder
+  - Export individual books using the Download button in Library
+</Accordion>
+
+<Accordion title="Can I edit EPUB metadata after creation?">
+  Currently, UNS sets metadata during scraping. To change metadata:
+  
+  1. Use EPUB editors like [Calibre](https://calibre-ebook.com/)
+  2. Or edit before finalizing:
+     - Provide correct title/author in the download form
+     - Upload a custom cover image
+</Accordion>
+
+<Accordion title="How do I add external EPUB files to the library?">
+  Click the **+** button in the Library tab and select your EPUB files. They'll be copied to the library and covers will be automatically extracted.
+</Accordion>
+
+## Technical Questions
+
+<Accordion title="Why does UNS use a browser instead of HTTP requests?">
+  Modern websites use JavaScript rendering, Cloudflare protection, and bot detection. Using a real browser:
+  
+  - Executes JavaScript like a human visitor
+  - Maintains cookies and sessions
+  - Passes bot detection checks
+  - Handles dynamic content loading
+  
+  This makes UNS much more reliable than traditional scrapers.
+</Accordion>
+
+<Accordion title="What is the FastAPI backend used for?">
+  The Python FastAPI "engine" handles:
+  
+  - Storing scraped chapters (JSONL format)
+  - Tracking download progress
+  - Generating EPUB files with ebooklib
+  - Managing the library
+  - Serving cover images
+  
+  It runs locally and communicates with Electron via REST API.
+</Accordion>
+
+<Accordion title="How does the scraper avoid detection?">
+  UNS uses several techniques:
+  
+  - Random delays between requests
+  - Real browser user agent
+  - Human-like browsing patterns
+  - Session cookie management
+  - Optional manual challenge solving
+  
+  However, respect rate limits and use reasonable delays to avoid overloading servers.
+</Accordion>
+
+<Accordion title="Can I run multiple scrapes simultaneously?">
+  Currently, UNS supports one active scrape at a time. This is intentional to:
+  - Reduce server load on target sites
+  - Maintain stable browser sessions
+  - Avoid detection as a bot
+  
+  You can queue multiple downloads by starting one after another finishes.
+</Accordion>
+
+<Accordion title="What chapter format does UNS expect?">
+  The scraper looks for:
+  
+  - **Title:** Usually an `<h1>`, `<h2>`, or element with class like `.chapter-title`
+  - **Content:** Paragraphs in `<p>` tags within a content container
+  - **Next button:** A link containing "next" that points to the next chapter
+  
+  Provider scripts can customize this logic for specific sites.
+</Accordion>
+
+<Accordion title="How are covers extracted from EPUBs?">
+  UNS uses the ebooklib library to:
+  
+  1. Read the EPUB file
+  2. Find items with `image/*` media type
+  3. Return the first image found
+  
+  This works because UNS only embeds one image (the cover) during creation.
+</Accordion>
+
+## Troubleshooting Questions
+
+<Accordion title="Why does scraping fail after the first chapter?">
+  Common causes:
+  
+  1. **Pagination detection failed** - The "next chapter" button wasn't found
+  2. **Site structure changed** - Provider script needs updating
+  3. **Cloudflare block** - Enable Cloudflare Bypass mode
+  4. **Rate limiting** - Increase delays between chapters
+  
+  Try enabling "Show Browser Window" to see what's happening.
+</Accordion>
+
+<Accordion title="The app won't start. What should I do?">
+  See the [Troubleshooting Guide](/help/troubleshooting) for platform-specific solutions. Common fixes:
+  
+  - **macOS:** `chmod +x` the engine binary
+  - **Windows:** Run as Administrator or check Windows Defender
+  - **Linux:** Install missing GTK3 dependencies
+</Accordion>
+
+<Accordion title="Providers won't install. Why?">
+  Check:
+  
+  1. Internet connection
+  2. Provider repository URL is accessible
+  3. Provider file is valid JavaScript
+  4. Disk permissions for userData directory
+  
+  See [Provider Installation](/customize/providers#installation) for details.
+</Accordion>
+
+## Privacy & Legal
+
+<Accordion title="Does UNS collect any data?">
+  No. UNS is completely offline except when:
+  - You scrape websites (direct connection to target site)
+  - You install providers (downloads JS files from provider repository)
+  
+  No usage data, analytics, or telemetry is collected.
+</Accordion>
+
+<Accordion title="Is web scraping legal?">
+  This depends on your jurisdiction and the website's terms of service. UNS is intended for:
+  
+  - Personal archival of publicly accessible content
+  - Educational purposes
+  - Backup of content you have permission to download
+  
+  <Warning>
+    Users are responsible for ensuring their use complies with local laws and website terms. Do not use UNS to:
+    - Republish or redistribute copyrighted content
+    - Violate website terms of service
+    - Overload servers with excessive requests
+  </Warning>
+</Accordion>
+
+<Accordion title="Can I use UNS for commercial purposes?">
+  No. UNS is licensed under CC BY-NC 4.0, which prohibits commercial use. For commercial licensing, contact the developer via GitHub.
+</Accordion>
+
+## Contributing
+
+<Accordion title="How can I contribute to UNS?">
+  Contributions are welcome!
+  
+  - **Code:** Submit pull requests on GitHub
+  - **Providers:** Create and share provider scripts
+  - **Documentation:** Improve guides and tutorials
+  - **Bug reports:** Open detailed issues on GitHub
+  - **Feature requests:** Discuss ideas in GitHub Discussions
+</Accordion>
+
+<Accordion title="How do I report bugs?">
+  Open an issue on [GitHub Issues](https://github.com/OsamaTab/UNS/issues) with:
+  
+  1. Operating system and version
+  2. UNS version number
+  3. Steps to reproduce
+  4. Expected vs actual behavior
+  5. Relevant logs and screenshots
+  
+  See [Troubleshooting > Getting Help](/help/troubleshooting#getting-help) for details.
+</Accordion>
+
+## Still Have Questions?
+
+If your question isn't answered here:
+
+1. Check the [Troubleshooting Guide](/help/troubleshooting)
+2. Browse the [full documentation](/introduction)
+3. Search [GitHub Issues](https://github.com/OsamaTab/UNS/issues)
+4. Open a new issue with your question

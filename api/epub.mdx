@@ -1,0 +1,399 @@
+---
+title: 'EPUB Generation'
+description: 'API endpoints for generating and downloading EPUB files'
+icon: 'file'
+---
+
+## Finalize EPUB
+
+<api method="POST" endpoint="/api/finalize-epub" />
+
+Compiles all scraped chapters into a complete EPUB file. This is the final step after scraping is complete.
+
+### Request Body
+
+<ParamField body="job_id" type="string" required>
+  The scraping job identifier
+</ParamField>
+
+<ParamField body="novel_name" type="string" required>
+  The title of the novel (used as EPUB metadata)
+</ParamField>
+
+<ParamField body="author" type="string" default="">
+  The author's name (used as EPUB creator metadata)
+</ParamField>
+
+<ParamField body="cover_data" type="string" default="">
+  Cover image as:
+  - Base64 data URI: `data:image/jpeg;base64,/9j/4AAQ...`
+  - Direct URL: `https://example.com/cover.jpg`
+  - Empty string for no cover
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Returns `"completed"` on success
+</ResponseField>
+
+<ResponseField name="epub_path" type="string">
+  Absolute path to the generated EPUB file
+</ResponseField>
+
+### Behavior
+
+1. **Reads progress file** (`{job_id}_progress.jsonl`) containing all chapters
+2. **Calls create_epub()** to generate the EPUB using ebooklib
+3. **Updates job status** to `"completed"` in history
+4. **Removes from active scrapes** if paused
+5. **Deletes progress file** (chapter data now in EPUB)
+6. **Returns path** to the generated EPUB
+
+### Example Request
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/finalize-epub \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "novel_name": "Epic Fantasy Novel",
+    "author": "Jane Doe",
+    "cover_data": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "status": "completed",
+  "epub_path": "/Users/you/Library/Application Support/universal-novel-scraper/output/epubs/a1b2c3d4-e5f6-7890-abcd-ef1234567890.epub"
+}
+```
+
+### JavaScript Example
+
+```javascript
+const finalizeEpub = async (jobId, metadata) => {
+  const response = await fetch('http://127.0.0.1:8000/api/finalize-epub', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      job_id: jobId,
+      novel_name: metadata.title,
+      author: metadata.author || 'Unknown Author',
+      cover_data: metadata.coverUrl || ''
+    })
+  });
+  
+  if (!response.ok) {
+    throw new Error('EPUB generation failed');
+  }
+  
+  const result = await response.json();
+  console.log(`EPUB created: ${result.epub_path}`);
+  return result;
+};
+```
+
+### Python Example
+
+```python
+import requests
+
+def finalize_epub(job_id, novel_name, author="Unknown", cover_data=""):
+    payload = {
+        "job_id": job_id,
+        "novel_name": novel_name,
+        "author": author,
+        "cover_data": cover_data
+    }
+    
+    response = requests.post(
+        "http://127.0.0.1:8000/api/finalize-epub",
+        json=payload
+    )
+    
+    if response.status_code == 200:
+        result = response.json()
+        print(f"EPUB created at: {result['epub_path']}")
+        return result['epub_path']
+    else:
+        error = response.json()
+        raise Exception(f"Failed to create EPUB: {error['detail']}")
+```
+
+### Error Responses
+
+#### No chapters found
+
+```json
+{
+  "detail": "No chapters found"
+}
+```
+
+HTTP Status: `404 Not Found`
+
+This occurs when:
+- The progress file doesn't exist
+- The job_id is invalid
+- No chapters were scraped before finalizing
+
+<Warning>
+  Always ensure at least one chapter is saved before calling finalize. Check `/api/status/{job_id}` first.
+</Warning>
+
+## Download EPUB
+
+<api method="GET" endpoint="/api/download/{job_id}" />
+
+Downloads an EPUB file by job ID. The response filename is sanitized from the novel name.
+
+### Path Parameters
+
+<ParamField path="job_id" type="string" required>
+  The job identifier (EPUB filename without extension)
+</ParamField>
+
+### Response
+
+Returns the EPUB file as a download with:
+- **Content-Type:** `application/epub+zip`
+- **Filename:** Sanitized novel name (e.g., `Epic_Fantasy_Novel.epub`)
+
+### Behavior
+
+1. **Locates EPUB** at `epubs/{job_id}.epub`
+2. **Reads novel name** from job history
+3. **Sanitizes filename** (removes invalid characters like `/*?:"|<>`)
+4. **Serves file** with appropriate headers
+
+### Example Request
+
+```bash
+curl -O http://127.0.0.1:8000/api/download/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+### JavaScript Example
+
+```javascript
+const downloadEpub = async (jobId) => {
+  const response = await fetch(`http://127.0.0.1:8000/api/download/${jobId}`);
+  
+  if (!response.ok) {
+    throw new Error('EPUB not found');
+  }
+  
+  // Get the suggested filename from Content-Disposition header
+  const disposition = response.headers.get('content-disposition');
+  const filename = disposition.match(/filename="(.+)"/)[1];
+  
+  // Download the file
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.URL.revokeObjectURL(url);
+};
+```
+
+### Python Example
+
+```python
+import requests
+
+def download_epub(job_id, output_path):
+    url = f"http://127.0.0.1:8000/api/download/{job_id}"
+    response = requests.get(url, stream=True)
+    
+    if response.status_code == 200:
+        # Extract filename from Content-Disposition header
+        disposition = response.headers.get('content-disposition')
+        filename = disposition.split('filename=')[1].strip('"')
+        
+        # Save to file
+        filepath = f"{output_path}/{filename}"
+        with open(filepath, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        print(f"Downloaded: {filepath}")
+        return filepath
+    else:
+        raise Exception(f"Download failed: {response.json()['detail']}")
+```
+
+### Error Response
+
+```json
+{
+  "detail": "EPUB not ready"
+}
+```
+
+HTTP Status: `404 Not Found`
+
+## EPUB Generation Details
+
+### Cover Image Handling
+
+The backend supports three cover formats:
+
+#### 1. Direct URL
+
+```json
+{
+  "cover_data": "https://example.com/covers/novel.jpg"
+}
+```
+
+The backend will:
+- Download the image with a user agent header
+- Detect format from URL (`.png`, `.jpg`, `.webp`)
+- Embed in EPUB
+
+#### 2. Base64 Data URI
+
+```json
+{
+  "cover_data": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+}
+```
+
+The backend will:
+- Parse the MIME type (e.g., `image/jpeg`)
+- Decode base64 data
+- Embed in EPUB with correct extension
+
+#### 3. No Cover
+
+```json
+{
+  "cover_data": ""
+}
+```
+
+EPUB will be generated without cover art.
+
+<Warning>
+  If cover download fails (404, timeout, invalid format), the EPUB is still created without a cover. Check backend logs for warnings.
+</Warning>
+
+### EPUB Structure
+
+Generated EPUBs follow the EPUB 3 standard:
+
+```
+novel.epub
+├── META-INF/
+│   └── container.xml
+├── OEBPS/
+│   ├── content.opf (metadata)
+│   ├── toc.ncx (table of contents)
+│   ├── nav.xhtml (navigation)
+│   ├── cover.jpg (if provided)
+│   ├── chap_1.xhtml
+│   ├── chap_2.xhtml
+│   └── ...
+└── mimetype
+```
+
+### Chapter HTML Format
+
+Each chapter is formatted as:
+
+```html
+<h1>Chapter Title</h1>
+<p>Paragraph 1</p>
+<p>Paragraph 2</p>
+<p>Paragraph 3</p>
+```
+
+Empty paragraphs are filtered out during generation.
+
+### Metadata
+
+EPUB metadata includes:
+- **Title:** From `novel_name`
+- **Creator:** From `author` (if provided)
+- **Language:** Defaults to `en`
+- **Identifier:** Auto-generated UUID
+
+### File Naming
+
+EPUBs are saved as `{job_id}.epub` internally, but:
+- Downloaded with sanitized novel name
+- Special characters replaced with underscores
+- Spaces replaced with underscores
+- Invalid filename characters removed: `/*?:"|<>`
+
+**Example:**
+- Novel name: `The Legendary Mechanic: Vol 2`
+- Download filename: `The_Legendary_Mechanic_Vol_2.epub`
+
+## Best Practices
+
+### 1. Verify Chapters Exist
+
+Always check status before finalizing:
+
+```javascript
+const status = await fetch(`http://127.0.0.1:8000/api/status/${jobId}`);
+const data = await status.json();
+
+if (data.chapters_count === 0) {
+  throw new Error('No chapters to finalize');
+}
+
+// Proceed with finalization
+await finalizeEpub(jobId, metadata);
+```
+
+### 2. Handle Cover Image Errors
+
+Cover download failures are non-fatal:
+
+```javascript
+try {
+  await finalizeEpub(jobId, { ...metadata, cover_data: coverUrl });
+} catch (error) {
+  // Check if error is about cover specifically
+  console.warn('Cover may have failed, but EPUB was created');
+}
+```
+
+### 3. Cleanup After Download
+
+After downloading, optionally clean up:
+
+```javascript
+await downloadEpub(jobId);
+
+// Delete the job data if no longer needed
+await fetch(`http://127.0.0.1:8000/api/novel/${jobId}`, { 
+  method: 'DELETE' 
+});
+```
+
+### 4. Progress Tracking
+
+Use status endpoint during generation:
+
+```javascript
+const pollUntilComplete = async (jobId) => {
+  while (true) {
+    const response = await fetch(`http://127.0.0.1:8000/api/status/${jobId}`);
+    const data = await response.json();
+    
+    if (data.status === 'completed') {
+      return data;
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+};
+```

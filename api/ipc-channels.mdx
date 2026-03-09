@@ -1,0 +1,773 @@
+---
+title: 'IPC Channels'
+description: 'Electron IPC communication between frontend and main process'
+icon: 'tower-broadcast'
+---
+
+## Overview
+
+The Universal Novel Scraper uses **Electron IPC (Inter-Process Communication)** to enable the React frontend to communicate with the main Electron process. The main process controls browser windows, manages scraping, and interfaces with the Python backend.
+
+## Architecture
+
+```
+React Frontend → preload.js → IPC → main.js → Python Backend
+                  ↑                              ↓
+                  └──────── IPC Events ──────────┘
+```
+
+- **Frontend:** Invokes IPC methods via `window.electronAPI`
+- **Preload:** Exposes safe IPC methods via `contextBridge`
+- **Main Process:** Handles IPC and controls system resources
+- **Backend:** HTTP API for data persistence
+
+<Warning>
+  IPC channels are for frontend-to-Electron communication only. For backend API calls, use HTTP requests to `http://127.0.0.1:8000`.
+</Warning>
+
+## Scraper Control
+
+### start-browser-scrape
+
+Starts a new scraping job.
+
+**Type:** `ipcRenderer.send()` (one-way)
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.startScrape({
+  job_id: 'uuid-v4-here',
+  novel_name: 'Epic Fantasy Novel',
+  author: 'Jane Doe',
+  start_url: 'https://example.com/novel/chapter-1',
+  cover_data: 'https://example.com/cover.jpg',
+  sourceId: 'allnovel',
+  enable_cloudflare_bypass: false
+});
+```
+
+**Payload Fields:**
+
+<ParamField body="job_id" type="string" required>
+  Unique identifier for this scraping job (UUID v4)
+</ParamField>
+
+<ParamField body="novel_name" type="string" required>
+  The novel's title
+</ParamField>
+
+<ParamField body="author" type="string" default="Unknown">
+  Author name
+</ParamField>
+
+<ParamField body="start_url" type="string" required>
+  URL of the first chapter to scrape
+</ParamField>
+
+<ParamField body="cover_data" type="string" default="">
+  Cover image (base64 or URL)
+</ParamField>
+
+<ParamField body="sourceId" type="string" required>
+  Provider ID (e.g., "allnovel", "lightnovelworld")
+</ParamField>
+
+<ParamField body="enable_cloudflare_bypass" type="boolean" default="false">
+  Enable manual Cloudflare challenge solving
+</ParamField>
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.on('start-browser-scrape', async (event, jobData) => {
+  // Checks if already scraping
+  // Resets cancellation flag
+  // Determines start chapter (for resume)
+  // Calls scrapeChapter() recursively
+});
+```
+
+**Events Emitted:**
+- `scrape-status` with status updates
+
+---
+
+### stop-scrape
+
+Pauses an active scraping job.
+
+**Type:** `ipcRenderer.send()` (one-way)
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.stopScrape({
+  job_id: 'uuid-v4-here'
+});
+```
+
+**Payload Fields:**
+
+<ParamField body="job_id" type="string" required>
+  The job to pause
+</ParamField>
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.on('stop-scrape', async (event, jobData) => {
+  scrapeCancelled = true;
+  isScraping = false;
+  
+  // Calls backend /api/stop-scrape
+  // Hides scraper window
+  // Emits 'scrape-status' with PAUSED
+});
+```
+
+**Events Emitted:**
+- `scrape-status` with `{ status: 'PAUSED' }`
+
+---
+
+### resume-scrape
+
+Resumes a paused scraping job.
+
+**Type:** `ipcRenderer.send()` (one-way)
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.resumeScrape({
+  job_id: 'uuid-v4-here',
+  novel_name: 'Epic Fantasy Novel',
+  author: 'Jane Doe',
+  start_url: 'https://example.com/novel/chapter-43',
+  cover_data: 'https://example.com/cover.jpg',
+  sourceId: 'allnovel',
+  enable_cloudflare_bypass: false
+});
+```
+
+**Payload:** Same as `start-browser-scrape`, but `start_url` should point to the next chapter.
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.on('resume-scrape', async (event, jobData) => {
+  // Fetches latest status from backend
+  // Resets scraping state
+  // Calls scrapeChapter() from bookmark
+});
+```
+
+**Events Emitted:**
+- `scrape-status` with status updates
+
+---
+
+### toggle-scraper-view
+
+Shows or hides the live scraper browser window.
+
+**Type:** `ipcRenderer.send()` (one-way)
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.toggleScraper(true);  // Show
+window.electronAPI.toggleScraper(false); // Hide
+```
+
+**Payload:** Boolean (true = show, false = hide)
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.on('toggle-scraper-view', (e, show) => {
+  showBrowserWindow = show;
+  const win = createScraperWindow();
+  
+  if (show) {
+    win.show();
+    win.focus();
+  } else if (!waitingForHuman) {
+    win.hide();
+  }
+});
+```
+
+<Warning>
+  The scraper window won't hide if Cloudflare bypass is waiting for human input (`waitingForHuman = true`).
+</Warning>
+
+---
+
+## Scraper Events (Outgoing)
+
+### scrape-status
+
+Sent from main process to frontend with scraping updates.
+
+**Type:** `ipcRenderer.on()` (event listener)
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.onScrapeStatus((data) => {
+  console.log(`Status: ${data.status}`);
+  console.log(`Message: ${data.message}`);
+});
+
+// Cleanup on unmount
+window.electronAPI.removeStatusListener();
+```
+
+**Event Data:**
+
+<ResponseField name="status" type="string">
+  Current scraping status (see status types below)
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message
+</ResponseField>
+
+**Status Types:**
+
+| Status | Description |
+|--------|-------------|
+| `STARTED` | Scraping initiated |
+| `LOADING` | Loading a chapter page |
+| `CLOUDFLARE` | Cloudflare challenge detected |
+| `SAVED` | Chapter saved successfully |
+| `FINALIZING` | Generating EPUB |
+| `COMPLETED` | Scraping finished |
+| `ERROR` | An error occurred |
+| `STOPPING` | User requested stop |
+| `PAUSED` | Scraping paused |
+
+**Example Payloads:**
+
+```javascript
+// Starting
+{ status: 'STARTED', message: '🚀 Starting...' }
+
+// Loading chapter
+{ status: 'LOADING', message: 'Chapter 42: Fetching...' }
+
+// Cloudflare detected
+{ status: 'CLOUDFLARE', message: '🛡️ Manual solve required.' }
+
+// Chapter saved
+{ status: 'SAVED', message: '✓ Saved Chapter 42' }
+
+// Finalizing
+{ status: 'FINALIZING', message: '📦 Generating EPUB...' }
+
+// Completed
+{ status: 'COMPLETED', message: '✅ Success!' }
+
+// Error
+{ status: 'ERROR', message: 'Error: No content found.' }
+```
+
+---
+
+### engine-ready
+
+Emitted when the Python backend is ready to accept requests.
+
+**Type:** `ipcRenderer.on()` (event listener)
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.onEngineReady(() => {
+  console.log('Backend is ready!');
+  // Safe to make API calls now
+});
+
+// Cleanup
+window.electronAPI.removeEngineReadyListener();
+```
+
+**Main Process Handler:**
+
+The main process polls `http://127.0.0.1:8000/api/health` until it responds, then emits this event.
+
+```javascript
+async function waitForEngine(mainWindow, attempts = 10) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await axios.get('http://127.0.0.1:8000/api/health');
+      mainWindow.webContents.send('engine-ready');
+      return true;
+    } catch (e) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+}
+```
+
+---
+
+## Provider Management
+
+### get-providers
+
+Retrieves a list of installed providers.
+
+**Type:** `ipcRenderer.invoke()` (async request/response)
+
+**Frontend Usage:**
+```javascript
+const providers = await window.electronAPI.getProviders();
+console.log(providers);
+```
+
+**Response:**
+
+```javascript
+[
+  {
+    id: 'allnovel',
+    name: 'AllNovel',
+    version: '1.0.0',
+    icon: '📖',
+    beta: false,
+    categories: [
+      { id: 'completed', name: 'Completed Novels' },
+      { id: 'ongoing', name: 'Ongoing' }
+    ]
+  },
+  {
+    id: 'lightnovelworld',
+    name: 'Light Novel World',
+    version: '2.1.0',
+    icon: '🌍',
+    beta: true,
+    categories: []
+  }
+]
+```
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.handle('get-providers', async () => {
+  return Object.values(providers).map(p => ({
+    id: p.id,
+    name: p.name,
+    version: p.version || '1.0.0',
+    icon: p.icon,
+    beta: p.beta || false,
+    categories: p.categories || []
+  }));
+});
+```
+
+---
+
+### install-from-url
+
+Installs or updates a provider from a URL.
+
+**Type:** `ipcRenderer.invoke()` (async request/response)
+
+**Frontend Usage:**
+```javascript
+const success = await window.electronAPI.installFromUrl({
+  id: 'allnovel',
+  url: 'https://raw.githubusercontent.com/user/repo/main/allnovel.js'
+});
+
+if (success) {
+  console.log('Provider installed!');
+}
+```
+
+**Parameters:**
+
+<ParamField body="id" type="string" required>
+  Provider identifier (used as filename)
+</ParamField>
+
+<ParamField body="url" type="string" required>
+  Direct URL to the provider JavaScript file
+</ParamField>
+
+**Response:** `true` on success, `false` on failure
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.handle('install-from-url', async (event, { id, url }) => {
+  try {
+    const response = await axios.get(`${url}?t=${Date.now()}`);
+    const filePath = path.join(providersDir, `${id.toLowerCase()}.js`);
+    
+    fs.writeFileSync(filePath, response.data);
+    delete require.cache[require.resolve(filePath)];
+    loadExternalProviders();
+    
+    return true;
+  } catch (error) {
+    console.error('Install failed:', error);
+    return false;
+  }
+});
+```
+
+---
+
+### delete-provider
+
+Deletes an installed provider.
+
+**Type:** `ipcRenderer.invoke()` (async request/response)
+
+**Frontend Usage:**
+```javascript
+const success = await window.electronAPI.deleteProvider('allnovel');
+
+if (success) {
+  console.log('Provider deleted');
+}
+```
+
+**Parameters:** Provider ID (string)
+
+**Response:** `true` if deleted, `false` if not found
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.handle('delete-provider', async (event, id) => {
+  const filePath = path.join(providersDir, `${id.toLowerCase()}.js`);
+  
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+    loadExternalProviders();
+    return true;
+  }
+  
+  return false;
+});
+```
+
+---
+
+## Provider Search
+
+### search-novel
+
+Searches for novels using a provider.
+
+**Type:** `ipcRenderer.invoke()` (async request/response)
+
+**Frontend Usage:**
+```javascript
+const results = await window.electronAPI.searchNovel({
+  sourceId: 'allnovel',
+  query: 'fantasy adventure',
+  page: 1
+});
+
+console.log(results);
+```
+
+**Parameters:**
+
+<ParamField body="sourceId" type="string" required>
+  Provider ID
+</ParamField>
+
+<ParamField body="query" type="string" required>
+  Search query
+</ParamField>
+
+<ParamField body="page" type="number" default="1">
+  Page number for pagination
+</ParamField>
+
+**Response:**
+
+```javascript
+[
+  {
+    title: 'Epic Fantasy Novel',
+    url: 'https://example.com/novel/epic-fantasy',
+    cover: 'https://example.com/covers/123.jpg',
+    author: 'Jane Doe'
+  },
+  // ...
+]
+```
+
+**Main Process Handler:**
+
+Loads the search page in the scraper window and executes the provider's `getListScript()`:
+
+```javascript
+ipcMain.handle('search-novel', async (event, { sourceId, query, page = 1 }) => {
+  const provider = providers[sourceId];
+  if (!provider) return [];
+  
+  await scraperWindow.loadURL(provider.getSearchUrl(query, page));
+  return await scraperWindow.webContents.executeJavaScript(provider.getListScript());
+});
+```
+
+---
+
+### explore-category
+
+Browses novels by category within a provider.
+
+**Type:** `ipcRenderer.invoke()` (async request/response)
+
+**Frontend Usage:**
+```javascript
+const novels = await window.electronAPI.exploreCategory({
+  sourceId: 'allnovel',
+  categoryId: 'completed',
+  page: 1
+});
+```
+
+**Parameters:**
+
+<ParamField body="sourceId" type="string" required>
+  Provider ID
+</ParamField>
+
+<ParamField body="categoryId" type="string" required>
+  Category identifier from provider's `categories` array
+</ParamField>
+
+<ParamField body="page" type="number" default="1">
+  Page number
+</ParamField>
+
+**Response:** Same format as `search-novel`
+
+---
+
+### get-novel-details
+
+Fetches detailed information about a novel, including all chapter links.
+
+**Type:** `ipcRenderer.invoke()` (async request/response)
+
+**Frontend Usage:**
+```javascript
+const details = await window.electronAPI.getNovelDetails({
+  sourceId: 'allnovel',
+  novelUrl: 'https://example.com/novel/epic-fantasy'
+});
+
+console.log(details.description);
+console.log(`Chapters: ${details.allChapters.length}`);
+```
+
+**Parameters:**
+
+<ParamField body="sourceId" type="string" required>
+  Provider ID
+</ParamField>
+
+<ParamField body="novelUrl" type="string" required>
+  URL of the novel's main page
+</ParamField>
+
+**Response:**
+
+```javascript
+{
+  description: 'In a world of magic and mystery...',
+  allChapters: [
+    {
+      title: 'Chapter 1: The Beginning',
+      url: 'https://example.com/novel/chapter-1'
+    },
+    {
+      title: 'Chapter 2: The Journey',
+      url: 'https://example.com/novel/chapter-2'
+    },
+    // ...
+  ]
+}
+```
+
+**Main Process Handler:**
+
+Loads the novel page and executes the provider's `getNovelDetailsScript()` with retry logic:
+
+```javascript
+ipcMain.handle('get-novel-details', async (event, { sourceId, novelUrl }) => {
+  const provider = providers[sourceId];
+  await scraperWindow.loadURL(novelUrl);
+  
+  // Retry up to 15 times for dynamic loading
+  for (let attempts = 0; attempts < 15; attempts++) {
+    const details = await scraperWindow.webContents.executeJavaScript(
+      provider.getNovelDetailsScript()
+    );
+    
+    if (details && details.allChapters.length > 0) {
+      return details;
+    }
+    
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  
+  return { description: 'Timed out', allChapters: [] };
+});
+```
+
+---
+
+## Library Management
+
+### add-epub-to-library
+
+Opens a file picker to add external EPUB files to the library.
+
+**Type:** `ipcRenderer.invoke()` (async request/response)
+
+**Frontend Usage:**
+```javascript
+const added = await window.electronAPI.addEpubToLibrary();
+
+if (added) {
+  console.log('EPUB(s) added to library');
+}
+```
+
+**Response:** `true` if files were added, `false` if dialog was cancelled
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.handle('add-epub-to-library', async (event) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Add EPUB to Library',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'EPUB Books', extensions: ['epub'] }]
+  });
+  
+  if (result.canceled) return false;
+  
+  let added = false;
+  for (const filePath of result.filePaths) {
+    const destPath = path.join(outputDir, 'epubs', path.basename(filePath));
+    if (!fs.existsSync(destPath)) {
+      fs.copyFileSync(filePath, destPath);
+      added = true;
+    }
+  }
+  
+  return added;
+});
+```
+
+---
+
+### open-epub
+
+Opens an EPUB file with the system's default reader.
+
+**Type:** `ipcRenderer.send()` (one-way)
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.openEpub('a1b2c3d4-e5f6-7890-abcd-ef1234567890.epub');
+```
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.on('open-epub', (e, filename) => {
+  const filePath = path.join(outputDir, 'epubs', filename);
+  shell.openPath(filePath);
+});
+```
+
+---
+
+## Utility Channels
+
+### open-external
+
+Opens a URL in the system's default browser.
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.openExternal('https://github.com/OsamaTab/UNS');
+```
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.on('open-external', (e, url) => {
+  shell.openExternal(url);
+});
+```
+
+---
+
+## Complete Example
+
+Here's a full scraping workflow using IPC:
+
+```javascript
+import { useState, useEffect } from 'react';
+
+const ScraperComponent = () => {
+  const [status, setStatus] = useState('');
+  const [message, setMessage] = useState('');
+  
+  useEffect(() => {
+    // Listen for engine ready
+    window.electronAPI.onEngineReady(() => {
+      console.log('Backend ready');
+    });
+    
+    // Listen for scrape status updates
+    window.electronAPI.onScrapeStatus((data) => {
+      setStatus(data.status);
+      setMessage(data.message);
+    });
+    
+    // Cleanup listeners on unmount
+    return () => {
+      window.electronAPI.removeEngineReadyListener();
+      window.electronAPI.removeStatusListener();
+    };
+  }, []);
+  
+  const startScraping = () => {
+    window.electronAPI.startScrape({
+      job_id: crypto.randomUUID(),
+      novel_name: 'Test Novel',
+      author: 'Test Author',
+      start_url: 'https://example.com/chapter-1',
+      sourceId: 'allnovel',
+      cover_data: '',
+      enable_cloudflare_bypass: false
+    });
+  };
+  
+  const stopScraping = () => {
+    window.electronAPI.stopScrape({
+      job_id: 'your-job-id'
+    });
+  };
+  
+  return (
+    <div>
+      <h2>Scraper Status: {status}</h2>
+      <p>{message}</p>
+      <button onClick={startScraping}>Start</button>
+      <button onClick={stopScraping}>Stop</button>
+    </div>
+  );
+};
+```

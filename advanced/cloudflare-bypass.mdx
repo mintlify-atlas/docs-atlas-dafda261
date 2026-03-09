@@ -1,0 +1,292 @@
+---
+title: 'Cloudflare Bypass'
+description: 'Learn how to bypass Cloudflare protection using manual browser control'
+icon: 'shield-check'
+---
+
+## Overview
+
+Universal Novel Scraper includes a sophisticated Cloudflare bypass mechanism that uses Electron's built-in Chromium browser to act like a real user. When enabled, the scraper can detect and wait for manual solving of Cloudflare challenges.
+
+<Warning>
+  Cloudflare bypass is **not** necessary for most websites. Only enable this feature when you encounter "Just a moment..." or "Verify you are human" pages that block automated scraping.
+</Warning>
+
+## How It Works
+
+The Cloudflare bypass system operates in several stages:
+
+<Steps>
+  <Step title="Detection Phase">
+    When the scraper loads a chapter page, it automatically checks for Cloudflare indicators:
+    
+    ```javascript
+    // From main.js:126-133
+    async function detectCloudflare(window) {
+        const title = await window.webContents.getTitle();
+        const url = window.webContents.getURL();
+        const titleIndicators = ['just a moment', 'cloudflare', 'attention required', 'verify you are human'];
+        const hasTitleIndicator = titleIndicators.some(i => title.toLowerCase().includes(i));
+        const hasCFElements = await window.webContents.executeJavaScript(
+          `!!document.querySelector('#cf-challenge-running, #cf-please-wait, #turnstile-wrapper, .cf-turnstile')`
+        );
+        return hasTitleIndicator || hasCFElements || url.toLowerCase().includes('cloudflare');
+    }
+    ```
+    
+    The system checks for:
+    - Page title keywords ("just a moment", "cloudflare", etc.)
+    - Cloudflare DOM elements (challenge widgets, turnstile)
+    - URLs containing "cloudflare"
+  </Step>
+
+  <Step title="Browser Window Display">
+    When Cloudflare is detected and bypass is enabled, the scraper:
+    
+    1. Shows the hidden browser window
+    2. Brings it to focus
+    3. Displays a status message: "🛡️ Manual solve required"
+    
+    ```javascript
+    // From main.js:161-163
+    if (hasCloudflare && enableCloudflareBypass) {
+        event.sender.send('scrape-status', { status: 'CLOUDFLARE', message: '🛡️ Manual solve required.' });
+        scraperWindow.show(); 
+        scraperWindow.focus();
+    }
+    ```
+  </Step>
+
+  <Step title="Waiting for Solution">
+    The scraper polls the page every 2 seconds for up to 60 seconds:
+    
+    ```javascript
+    // From main.js:135-144
+    async function waitForCloudflareSolve(window, jobId, maxWaitTime = 60000) {
+        const startTime = Date.now();
+        while (Date.now() - startTime < maxWaitTime) {
+            if (scrapeCancelled) return false;
+            const hasCloudflare = await detectCloudflare(window);
+            if (!hasCloudflare) return true; // Challenge solved!
+            await new Promise(r => setTimeout(r, 2000));
+        }
+        return false; // Timeout
+    }
+    ```
+  </Step>
+
+  <Step title="Automatic Continuation">
+    Once the challenge is solved:
+    
+    1. The scraper waits an additional 2 seconds for the page to stabilize
+    2. Hides the browser window (unless "Show Browser" is enabled)
+    3. Continues scraping automatically
+    
+    ```javascript
+    // From main.js:166-170
+    waitingForHuman = true;
+    const solved = await waitForCloudflareSolve(scraperWindow, jobData.job_id);
+    waitingForHuman = false;
+    if (!solved || scrapeCancelled) return;
+    await new Promise(r => setTimeout(r, 2000));
+    if (!showBrowserWindow) scraperWindow.hide();
+    ```
+  </Step>
+</Steps>
+
+## When to Enable Cloudflare Bypass
+
+<AccordionGroup>
+  <Accordion title="✅ You SHOULD enable it when:">
+    - You see "Just a moment..." loading pages that never finish
+    - The site shows "Verify you are human" challenges
+    - Chapters fail to scrape with timeout errors
+    - The download console shows Cloudflare detection messages
+  </Accordion>
+
+  <Accordion title="❌ You DON'T need it when:">
+    - Chapters are scraping successfully without errors
+    - The site loads normally in a regular browser
+    - You're getting content extraction errors (this is a different issue)
+    - Scraping is just slow (use rate limiting instead)
+  </Accordion>
+</AccordionGroup>
+
+## How to Use
+
+### Enable Before Starting
+
+<Steps>
+  <Step title="Open Download Manager">
+    Navigate to the Download page from the sidebar.
+  </Step>
+
+  <Step title="Configure Job Settings">
+    Before clicking "Start Scrape", check the **"Enable Cloudflare Bypass"** checkbox.
+  </Step>
+
+  <Step title="Start Scraping">
+    Click "Start Scrape". If Cloudflare is detected:
+    
+    1. A browser window will appear automatically
+    2. You'll see the Cloudflare challenge page
+    3. Solve any CAPTCHAs or checkboxes if present
+    4. Wait for the page to load the actual content
+  </Step>
+
+  <Step title="Let It Continue">
+    Once the challenge clears:
+    
+    - The browser will hide automatically
+    - Scraping continues for all subsequent chapters
+    - You typically only need to solve the challenge **once per session**
+  </Step>
+</Steps>
+
+### Optional: Show Browser Window
+
+<Info>
+  You can enable "Show Browser" mode to watch the scraping process in real-time. This is useful for debugging provider scripts or understanding why a site isn't working.
+</Info>
+
+From main.js:481-486:
+
+```javascript
+ipcMain.on('toggle-scraper-view', (e, show) => {
+    showBrowserWindow = show;
+    const win = createScraperWindow();
+    if (show) { win.show(); win.focus(); }
+    else if (!waitingForHuman) win.hide();
+});
+```
+
+## Rate Limiting
+
+When Cloudflare bypass is enabled, the scraper automatically uses **longer delays** between requests to appear more human:
+
+```javascript
+// From main.js:156
+await new Promise(resolve => setTimeout(resolve, 
+  enableCloudflareBypass ? getRandomTimeout(1500, 4000) : getRandomTimeout(100, 500)
+));
+```
+
+| Mode | Delay Between Chapters |
+|------|------------------------|
+| **Normal** | 100-500ms |
+| **Cloudflare Bypass** | 1500-4000ms (1.5-4 seconds) |
+
+<Warning>
+  Cloudflare bypass mode is **slower** but safer. A 100-chapter novel will take approximately **5-7 minutes** to scrape instead of 1-2 minutes.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Browser window never appears">
+    **Possible causes:**
+    
+    1. Cloudflare bypass is not enabled
+    2. The site doesn't use Cloudflare (check browser console for errors)
+    3. Electron window is hidden behind other windows (check your taskbar)
+    
+    **Solution:** 
+    - Stop the scrape
+    - Enable "Show Browser" toggle
+    - Restart the scrape and watch the browser window
+  </Accordion>
+
+  <Accordion title="Challenge keeps timing out">
+    If you're unable to solve the challenge within 60 seconds:
+    
+    ```javascript
+    // From main.js:135
+    async function waitForCloudflareSolve(window, jobId, maxWaitTime = 60000)
+    ```
+    
+    **Solution:**
+    - Some challenges require multiple steps
+    - Click the checkbox immediately when it appears
+    - Solve any CAPTCHA puzzles quickly
+    - If using VPN, try disconnecting (Cloudflare is stricter with VPN IPs)
+  </Accordion>
+
+  <Accordion title="Challenge solved but scraping still fails">
+    The scraper waits 2 seconds after solving before extracting content.
+    
+    **Possible issues:**
+    
+    1. The site uses additional JavaScript protections
+    2. Content extraction selectors are incorrect (provider issue)
+    3. The page requires authentication/login
+    
+    **Solution:**
+    - Enable "Show Browser" to see what's actually loading
+    - Check if the provider script is up to date
+    - See if the site requires a login (not currently supported)
+  </Accordion>
+
+  <Accordion title="Getting banned after multiple chapters">
+    Even with Cloudflare bypass, aggressive scraping can trigger rate limits.
+    
+    **Solution:**
+    
+    1. The random delays (1.5-4s) should prevent this in most cases
+    2. Try scraping in smaller batches (pause and resume)
+    3. Some sites have per-IP daily limits (wait 24 hours)
+  </Accordion>
+</AccordionGroup>
+
+## Technical Details
+
+### User Agent Spoofing
+
+The scraper uses a realistic Chrome user agent:
+
+```javascript
+// From main.js:117
+scraperWindow.webContents.userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+```
+
+### Referrer Headers
+
+Some provider scripts use Google referrer to appear more legitimate:
+
+```javascript
+// From main.js:417
+await scraperWindow.loadURL(novelUrl, { httpReferrer: 'https://www.google.com/' });
+```
+
+This makes it appear as if the user came from a Google search.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Sparingly" icon="hourglass">
+    Only enable Cloudflare bypass when necessary. Normal mode is 3-8x faster.
+  </Card>
+  
+  <Card title="Be Patient" icon="clock">
+    Wait the full 60 seconds if the challenge is complex. Don't spam-click.
+  </Card>
+  
+  <Card title="One Session" icon="check">
+    You usually only solve the challenge once at the start. Later chapters work automatically.
+  </Card>
+  
+  <Card title="Respect Sites" icon="heart">
+    Don't abuse the bypass. Scrape responsibly and respect site terms of service.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Provider System" icon="plug" href="/advanced/providers">
+    Learn how to customize scraping for specific websites
+  </Card>
+  
+  <Card title="Scraping Flow" icon="diagram-project" href="/advanced/scraping-flow">
+    Understand the complete scraping pipeline
+  </Card>
+</CardGroup>

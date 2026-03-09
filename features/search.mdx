@@ -1,0 +1,537 @@
+---
+title: 'Multi-Source Search'
+description: 'Discover novels across multiple platforms with aggregated search, provider-specific browsing, and instant download integration'
+icon: 'magnifying-glass'
+---
+
+## Overview
+
+The **Search** feature aggregates novel discovery across multiple sources simultaneously. It provides unified search results, provider-specific library browsing, and seamless integration with the Download Manager.
+
+<Note>
+  Search queries are sent to all active providers in parallel, with results displayed as they arrive in real-time.
+</Note>
+
+---
+
+## Search Interface
+
+### Universal Search Bar
+
+The primary search input queries all providers at once:
+
+```
+🔍 Search by title... (Press Enter)
+```
+
+<Steps>
+  <Step title="Enter Query">
+    Type a novel title or keyword (e.g., "Estate Developer")
+  </Step>
+  
+  <Step title="Press Enter">
+    Initiates search across all active providers
+  </Step>
+  
+  <Step title="View Results">
+    Results appear grouped by provider as they load
+  </Step>
+  
+  <Step title="Select Novel">
+    Click any result to view details and start download
+  </Step>
+</Steps>
+
+<Tip>
+  The search bar automatically focuses when you navigate to the Search page, so you can start typing immediately.
+</Tip>
+
+---
+
+## Search Results
+
+### Provider Groups
+
+Results are organized by source:
+
+<Tabs>
+  <Tab title="Layout Structure">
+    Each provider shows:
+    
+    - **Provider icon** and name
+    - **Status indicator** (loading, success, error, not found)
+    - **Result count** badge
+    - **Novel cards/list** (switchable view)
+    - **Expand/collapse** for providers with >5 results
+    
+    ```jsx
+    // Provider header
+    <div className="flex items-center gap-3">
+      <img src={provider.icon} />
+      <h2>{provider.name}</h2>
+      {provider.beta && <span>BETA</span>}
+    </div>
+    ```
+  </Tab>
+  
+  <Tab title="Status States">
+    | State | Indicator | Meaning |
+    |-------|-----------|----------|
+    | **Loading** | Spinning loader + "Searching..." | Query in progress |
+    | **Success** | Green badge with count | Results found |
+    | **Not Found** | Gray "Nothing found" message | No matches |
+    | **Error** | Red alert icon + message | Provider temporarily unavailable |
+  </Tab>
+</Tabs>
+
+### Live Progress Indicator
+
+During search:
+
+```
+🔵 Searching 3 of 8 sources...
+```
+
+After completion:
+
+```
+Results: 5 sources  ⚠️ 1 failed
+```
+
+<Info>
+  Failed providers don't block the search. You'll still see results from successful sources.
+</Info>
+
+---
+
+## View Modes
+
+### Grid View (Default)
+
+<CardGroup cols={2}>
+  <Card title="Features">
+    - Large cover previews
+    - Hover zoom effect
+    - Chapter count badge on hover
+    - "View Details" button overlay
+    - Responsive grid (2-6 columns)
+  </Card>
+  
+  <Card title="Best For">
+    - Visual browsing
+    - Recognizing covers
+    - Discovering new titles
+    - Small result sets (under 50 novels)
+  </Card>
+</CardGroup>
+
+### List View
+
+<CardGroup cols={2}>
+  <Card title="Features">
+    - Compact rows
+    - Small thumbnail covers
+    - Title + chapter info inline
+    - Faster scrolling
+    - Better text search
+  </Card>
+  
+  <Card title="Best For">
+    - Large result sets (>50 novels)
+    - Scanning titles quickly
+    - Lower-end devices
+    - Searching specific titles
+  </Card>
+</CardGroup>
+
+<Tip>
+  Toggle between views using the **Grid/List** buttons in the top-right corner. Your preference is remembered during the session.
+</Tip>
+
+---
+
+## Novel Details Modal
+
+Clicking any result opens an immersive detail view:
+
+<Tabs>
+  <Tab title="Information Tabs">
+    **Description Tab:**
+    
+    - Full novel synopsis
+    - Author name
+    - Source website link
+    - Loading skeleton during fetch
+    
+    **Chapters Tab:**
+    
+    - Complete chapter list
+    - Chapter titles (if available)
+    - Numbered index
+    - "Select" button per chapter to start download from that point
+    
+    <Note>
+      The Chapters tab only appears for novel sources. E-book sources (like Anna's Archive) show Description only.
+    </Note>
+  </Tab>
+  
+  <Tab title="Actions">
+    **Primary Action:**
+    
+    ```jsx
+    // Start Download button
+    <button onClick={() => navigate('/download', {
+      state: {
+        prefill: {
+          url: novel.firstChapterUrl,
+          title: novel.title,
+          author: novel.author,
+          cover: novel.cover,
+          sourceId: novel.sourceId
+        }
+      }
+    })} />
+    ```
+    
+    This navigates to Download Manager with all fields pre-filled.
+    
+    **Secondary Actions:**
+    
+    - **View Source**: Opens novel page in external browser
+    - **Close**: ESC key or X button
+  </Tab>
+  
+  <Tab title="Chapter Selection">
+    Instead of starting from Chapter 1, you can:
+    
+    1. Open the **Chapters** tab
+    2. Scroll to desired starting chapter
+    3. Click **Select** button next to that chapter
+    4. Download Manager opens with that chapter URL as start point
+    
+    <Tip>
+      Useful if you've already read the first 50 chapters elsewhere and want to continue from Chapter 51.
+    </Tip>
+  </Tab>
+</Tabs>
+
+---
+
+## Provider Library Browsing
+
+### Explore Mode
+
+When no search is active, you see a grid of **provider cards**:
+
+<Steps>
+  <Step title="Select Provider">
+    Click any provider card to browse their library
+  </Step>
+  
+  <Step title="Choose Category">
+    Tabs appear for categories like "Popular", "Latest", "Completed", etc.
+  </Step>
+  
+  <Step title="Browse Results">
+    Paginated results load (default: first page)
+  </Step>
+  
+  <Step title="Load More">
+    Click **Load More** button to fetch next page
+  </Step>
+  
+  <Step title="Return to Search">
+    Click **back arrow** to exit explore mode
+  </Step>
+</Steps>
+
+<Tabs>
+  <Tab title="Category Filtering">
+    Providers define their own categories:
+    
+    ```jsx
+    // Example provider categories
+    categories: [
+      { id: 'popular', name: 'Popular' },
+      { id: 'latest', name: 'Latest Updates' },
+      { id: 'completed', name: 'Completed' },
+      { id: 'ongoing', name: 'Ongoing' }
+    ]
+    ```
+    
+    Click any category tab to reload results for that filter.
+  </Tab>
+  
+  <Tab title="Pagination">
+    ```jsx
+    // Load more implementation
+    const loadMoreExplore = async () => {
+      const nextPage = exploreState.page + 1;
+      const data = await window.electronAPI.exploreCategory({
+        sourceId: provider.id,
+        categoryId: category,
+        page: nextPage
+      });
+      
+      // Append to existing results
+      setResults(prev => [...prev, ...data]);
+    };
+    ```
+    
+    <Info>
+      The "Load More" button disappears when no additional pages exist.
+    </Info>
+  </Tab>
+</Tabs>
+
+---
+
+## Provider Management
+
+### Active Providers
+
+The header shows the count of active sources:
+
+```
+✨ 8 Sources
+```
+
+### Adding More Providers
+
+Click the **"Add More Sites"** card to visit the Marketplace:
+
+<CardGroup cols={2}>
+  <Card title="Community Providers" icon="users">
+    Browse community-maintained scrapers
+  </Card>
+  
+  <Card title="Official Sources" icon="check-badge">
+    Verified providers with guaranteed compatibility
+  </Card>
+  
+  <Card title="Beta Providers" icon="flask">
+    Experimental sources (may be unstable)
+  </Card>
+  
+  <Card title="Custom Providers" icon="code">
+    Import your own provider scripts
+  </Card>
+</CardGroup>
+
+<Tip>
+  See the [Providers Guide](/advanced/providers) for detailed instructions on installing and creating custom providers.
+</Tip>
+
+---
+
+## Search Integration with Download Manager
+
+### Pre-filled Downloads
+
+When you click **Start Download** from search results:
+
+1. **URL**: First chapter URL automatically detected
+2. **Title**: Novel title pre-filled
+3. **Author**: Author metadata included
+4. **Cover**: Cover image attached (base64 encoded)
+5. **Source ID**: Provider identifier passed for optimal scraping
+
+This saves manual data entry and ensures complete EPUB metadata.
+
+```jsx
+// Prefill state structure
+state: {
+  prefill: {
+    url: "https://site.com/novel/chapter-1",
+    title: "The Greatest Estate Developer",
+    author: "Author Name",
+    cover: "data:image/jpeg;base64,...",
+    sourceId: "lightnovelworld"
+  }
+}
+```
+
+---
+
+## Search Tips & Best Practices
+
+<AccordionGroup>
+  <Accordion title="Improving Search Accuracy">
+    **Use specific keywords:**
+    
+    ✅ "Estate Developer" → Better results
+    
+    ❌ "Developer" → Too broad, many false matches
+    
+    **Include distinctive words:**
+    
+    - Use unique terms from the title
+    - Avoid common words like "the", "a", "novel"
+    - Try alternative titles (Japanese, Korean, Chinese)
+  </Accordion>
+  
+  <Accordion title="When Search Returns No Results">
+    1. **Check spelling** → Try alternative romanizations
+    2. **Use shorter query** → "Overgeared" vs "Overgeared Light Novel"
+    3. **Try explore mode** → Browse provider libraries manually
+    4. **Check provider status** → Some sources may be temporarily down
+    5. **Add more providers** → Expand your search coverage
+  </Accordion>
+  
+  <Accordion title="Finding Popular Novels">
+    Instead of searching:
+    
+    1. Use **Explore Mode** on any provider
+    2. Select **"Popular"** category
+    3. Browse trending titles across platforms
+    
+    This discovers novels you might not have known to search for.
+  </Accordion>
+  
+  <Accordion title="Dealing with Slow Providers">
+    If one provider is very slow:
+    
+    - Results from faster providers appear first
+    - Slow provider shows "Searching..." longer
+    - You can start downloads before all results arrive
+    - Consider disabling slow providers in Settings
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Advanced Search Features
+
+### Hover Previews
+
+```jsx
+// Novel hover state
+onMouseEnter={() => setHoveredNovel(novel.title)}
+```
+
+Hovering shows:
+
+- **Chapter count** badge
+- **View Details** button
+- **Zoom effect** on cover
+- **Shadow glow** (blue)
+
+### Search State Persistence
+
+During a session:
+
+- Search query persists when navigating to Download/Library
+- Results remain visible when you return to Search
+- Expanded provider states are remembered
+- View mode preference maintained
+
+<Note>
+  Search state clears when you restart the app or manually clear the search bar.
+</Note>
+
+---
+
+## Keyboard Shortcuts
+
+<CardGroup cols={2}>
+  <Card title="Enter" icon="keyboard">
+    Execute search from input field
+  </Card>
+  
+  <Card title="Escape" icon="keyboard">
+    Close novel details modal
+  </Card>
+  
+  <Card title="Tab" icon="keyboard">
+    Navigate between view mode buttons and provider cards
+  </Card>
+  
+  <Card title="Ctrl/Cmd + K" icon="keyboard">
+    Focus search bar from anywhere (coming soon)
+  </Card>
+</CardGroup>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Search not returning results">
+    **Check network connection:**
+    
+    - Providers require internet access
+    - Firewall may block requests
+    - VPN might cause issues with some sources
+    
+    **Verify providers are loaded:**
+    
+    - Header should show "X Sources"
+    - If 0 sources, go to Settings → Providers
+    - Reinstall providers from Marketplace
+  </Accordion>
+  
+  <Accordion title="All providers showing errors">
+    This usually means:
+    
+    - Backend is not running (restart app)
+    - Provider scripts are outdated (update from Marketplace)
+    - Website structures changed (check for provider updates)
+  </Accordion>
+  
+  <Accordion title="Novel details not loading">
+    - Provider may not support detail fetching (only search)
+    - Novel URL might be invalid
+    - Website requires authentication (not supported)
+    - Try opening source link in browser to verify
+  </Accordion>
+  
+  <Accordion title="Covers not displaying">
+    - Some providers don't return cover URLs
+    - Image hosting may block direct linking
+    - Network timeout during image load
+    - Fallback placeholder should still appear
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Provider Architecture
+
+Under the hood, search works like this:
+
+```javascript
+// Search flow
+1. User enters query
+2. Frontend sends IPC to Electron main
+3. Electron loads provider scripts
+4. Each provider exports searchNovel() function
+5. Provider scrapes source website
+6. Results returned to frontend
+7. UI updates with results
+```
+
+<Tip>
+  Developers can create custom providers by following the [Provider Development Guide](/advanced/custom-providers).
+</Tip>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Start Downloading" icon="download" href="/features/download-manager">
+    Use search results to begin scraping novels
+  </Card>
+  
+  <Card title="Add Providers" icon="plug" href="/advanced/providers">
+    Expand your search across more websites
+  </Card>
+  
+  <Card title="Manage Library" icon="books" href="/features/library-manager">
+    Organize and read downloaded EPUBs
+  </Card>
+  
+  <Card title="Scraping Flow" icon="code" href="/advanced/scraping-flow">
+    Build your own provider for unsupported sites
+  </Card>
+</CardGroup>

@@ -1,0 +1,496 @@
+---
+title: 'Python FastAPI Backend'
+description: 'EPUB generation engine, chapter storage, and REST API endpoints'
+icon: 'python'
+---
+
+## Overview
+
+The Python backend (`backend/api.py`) is a FastAPI application that serves as the data processing and persistence layer. It receives scraped chapters via HTTP API, stores them in JSONL files, and generates EPUB books when scraping is complete.
+
+## Technology Stack
+
+<CardGroup cols={2}>
+  <Card title="FastAPI" icon="bolt">
+    Modern async web framework for building APIs with automatic OpenAPI documentation
+  </Card>
+  
+  <Card title="ebooklib" icon="book">
+    Python library for reading and writing EPUB files with full metadata support
+  </Card>
+  
+  <Card title="Pydantic" icon="check-circle">
+    Data validation using Python type hints for request/response models
+  </Card>
+  
+  <Card title="JSONL Storage" icon="database">
+    Line-delimited JSON files for efficient chapter appending and streaming
+  </Card>
+</CardGroup>
+
+## Application Initialization
+
+### Path Configuration
+
+The backend receives the user data path as a command-line argument from Electron:
+
+```python api.py:17-28
+# Electron will pass the 'userData' path as the first argument
+BASE_OUTPUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.getcwd(), "output")
+
+# Define subdirectories for organized storage
+HISTORY_DIR = os.path.join(BASE_OUTPUT, "history")
+JOBS_DIR = os.path.join(BASE_OUTPUT, "jobs")
+EPUB_DIR = os.path.join(BASE_OUTPUT, "epubs")
+
+# Create directories if they don't exist
+for folder in [HISTORY_DIR, JOBS_DIR, EPUB_DIR]:
+    os.makedirs(folder, exist_ok=True)
+```
+
+<Info>
+This design allows the backend to work both as a standalone server (development) and as a bundled binary (production) by accepting the output directory as an argument.
+</Info>
+
+### Startup Lifecycle
+
+```python api.py:42-48
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print(f"🚀 Engine starting... Data home: {BASE_OUTPUT}")
+    yield
+    print("💤 Engine shutting down...")
+
+app = FastAPI(lifespan=lifespan)
+```
+
+### CORS Configuration
+
+```python api.py:50-56
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+<Warning>
+In production, you should restrict `allow_origins` to only `http://127.0.0.1:8000` and the Electron renderer origin for security.
+</Warning>
+
+## Data Models
+
+Pydantic models validate incoming request data:
+
+```python api.py:82-97
+class FinalizeData(BaseModel):
+    job_id: str
+    novel_name: str
+    author: str = ""
+    cover_data: str = ""
+
+class StopScrapeData(BaseModel):
+    job_id: str
+    reason: str = "user_requested"
+
+class ResumeScrapeData(BaseModel):
+    job_id: str
+    start_url: str
+    novel_name: str
+    author: str = ""
+    cover_data: str = ""
+```
+
+## Core Endpoints
+
+### Health Check
+
+The simplest endpoint used by Electron to verify the engine is running:
+
+```python api.py:403-405
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "version": "1.0.0"}
+```
+
+### Save Chapter
+
+The most critical endpoint that receives scraped chapter data and stores it:
+
+```python api.py:136-186
+@app.post("/api/save-chapter")
+def save_chapter(data: dict):
+    job_id = data.get("job_id")
+    if not job_id:
+        raise HTTPException(status_code=400, detail="Missing job_id")
+        
+    progress_file = get_progress_file(job_id)
+    
+    # 1. Prepare Chapter Data
+    chapter_title = data.get("chapter_title", "Untitled")
+    content = data.get("content", [])
+    chapter_info = [chapter_title, content]
+    
+    # 2. Append to progress file (.jsonl)
+    with open(progress_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(chapter_info, ensure_ascii=False) + "\n")
+        
+    # Count the total chapters scraped so far
+    with open(progress_file, "r", encoding="utf-8") as f:
+        current_count = sum(1 for _ in f)
+    
+    # 3. Update the Bookmark and Metadata
+    next_chapter_url = data.get("next_url") or data.get("start_url")
+
+    if job_id not in jobs:
+        # Create new entry with all metadata
+        jobs[job_id] = {
+            "novel_name": data.get("novel_name", "Unknown Novel"),
+            "status": "processing",
+            "author": data.get("author", "Unknown"),
+            "cover_data": data.get("cover_data", ""),
+            "start_url": next_chapter_url,
+            "sourceId": data.get("sourceId", "generic"),
+            "chapters_count": current_count,
+            "last_updated": str(os.path.getmtime(progress_file)) if os.path.exists(progress_file) else ""
+        }
+    else:
+        # Update existing entry
+        jobs[job_id]["status"] = "processing"
+        jobs[job_id]["chapters_count"] = current_count
+        
+        if next_chapter_url:
+            jobs[job_id]["start_url"] = next_chapter_url
+            
+    # 4. Persistence
+    save_history(jobs)
+    return {"status": "ok", "job_id": job_id}
+```
+
+<Accordion title="Why JSONL Format?">
+  JSONL (JSON Lines) stores one JSON object per line. This format is perfect for append-only operations:
+  
+  **Benefits**:
+  - Append new chapters without reading the entire file
+  - Easy to stream and process line-by-line
+  - Fault-tolerant: corruption affects only one line
+  - Human-readable for debugging
+  
+  **Example JSONL file**:
+  ```json
+  ["Chapter 1: The Beginning", ["Paragraph 1", "Paragraph 2", "Paragraph 3"]]
+  ["Chapter 2: The Journey", ["Paragraph 1", "Paragraph 2"]]
+  ["Chapter 3: The End", ["Paragraph 1", "Paragraph 2", "Paragraph 3", "Paragraph 4"]]
+  ```
+</Accordion>
+
+### Finalize EPUB
+
+Called when all chapters are scraped to generate the final EPUB file:
+
+```python api.py:188-220
+@app.post("/api/finalize-epub")
+def finalize_epub(data: FinalizeData):
+    job_id = data.job_id
+    progress_file = get_progress_file(job_id)
+    epub_file = get_epub_file(job_id)
+    
+    if not os.path.exists(progress_file):
+        raise HTTPException(status_code=404, detail="No chapters found")
+    
+    chapters = []
+    with open(progress_file, "r", encoding="utf-8") as f:
+        for line in f:
+            chapters.append(json.loads(line))
+    
+    create_epub(
+        novel_title=data.novel_name,
+        author=data.author,
+        chapters=chapters,
+        output_filename=epub_file,
+        cover_data=data.cover_data
+    )
+    
+    jobs[job_id]["status"] = "completed"
+    jobs[job_id]["chapters_count"] = len(chapters)
+    if job_id in active_scrapes:
+        del active_scrapes[job_id]
+        save_active_scrapes(active_scrapes)
+    save_history(jobs)
+    
+    if os.path.exists(progress_file):
+        os.remove(progress_file)
+    
+    return {"status": "completed", "epub_path": epub_file}
+```
+
+Notice that after successful EPUB generation, the temporary JSONL file is deleted to save space.
+
+### Job Status
+
+Returns the current status and progress of a scraping job:
+
+```python api.py:105-134
+@app.get("/api/status/{job_id}")
+def check_status(job_id: str):
+    job_info = jobs.get(job_id, {"status": "not found", "novel_name": "Unknown"})
+    status = job_info.get("status", "not found")
+    progress_text = "0 chapters scraped"
+    
+    # Initialize chapter_count
+    chapter_count = 0 
+    
+    progress_file = get_progress_file(job_id)
+    if os.path.exists(progress_file):
+        try:
+            with open(progress_file, "r", encoding="utf-8") as f:
+                chapter_count = sum(1 for _ in f)
+            progress_text = f"{chapter_count} chapters scraped"
+        except Exception:
+            pass
+    
+    if job_id in active_scrapes:
+        status = "paused"
+        progress_text += f" (Last: {active_scrapes[job_id].get('last_chapter', 'N/A')})"
+    
+    return {
+        "job_id": job_id, 
+        "status": status, 
+        "progress": progress_text,
+        "chapters_count": chapter_count,
+        "novel_name": job_info.get("novel_name", "Unknown")
+    }
+```
+
+## EPUB Generation
+
+The `create_epub()` function uses ebooklib to build a standards-compliant EPUB:
+
+```python api.py:360-400
+def create_epub(novel_title, author, chapters, output_filename, cover_data=""):
+    book = epub.EpubBook()
+    book.set_title(novel_title)
+    if author: book.add_author(author)
+    
+    if cover_data:
+        try:
+            if cover_data.startswith("http://") or cover_data.startswith("https://"):
+                # Handle direct URL covers
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                response = requests.get(cover_data, headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    # Guess extension from URL or default to jpg
+                    ext = "jpg"
+                    if ".png" in cover_data.lower(): ext = "png"
+                    elif ".webp" in cover_data.lower(): ext = "webp"
+                    
+                    book.set_cover(f"cover.{ext}", response.content)
+            else:
+                # Handle Base64 file uploads (from your frontend input type="file")
+                header, encoded = cover_data.split(",", 1)
+                ext = header.split(";")[0].split("/")[1]
+                book.set_cover(f"cover.{ext}", base64.b64decode(encoded))
+        except Exception as e:
+            print(f"⚠️ Failed to add cover image: {e}")
+            pass
+    
+    spine = ['nav']
+    toc = []
+    for i, (title, content) in enumerate(chapters):
+        chapter = epub.EpubHtml(title=title, file_name=f'chap_{i+1}.xhtml')
+        chapter.content = f'<h1>{title}</h1>' + "".join([f'<p>{p}</p>' for p in content if p.strip()])
+        book.add_item(chapter)
+        spine.append(chapter)
+        toc.append(chapter)
+
+    book.toc = tuple(toc)
+    book.add_item(epub.EpubNav())
+    book.spine = spine
+    epub.write_epub(output_filename, book)
+```
+
+<Accordion title="Understanding EPUB Structure">
+  An EPUB is essentially a ZIP archive containing:
+  
+  **Core Components**:
+  - **spine**: Defines the reading order of chapters
+  - **toc** (Table of Contents): Navigation structure
+  - **nav**: EPUB3 navigation document
+  - **metadata**: Title, author, language, etc.
+  
+  **Chapter Format**: Each chapter is an XHTML file with:
+  ```html
+  <h1>Chapter Title</h1>
+  <p>Paragraph 1</p>
+  <p>Paragraph 2</p>
+  ```
+  
+  The `spine` array determines the order chapters appear in the reader.
+</Accordion>
+
+## Library Management
+
+### Get Library
+
+Returns all EPUBs in the library with extracted metadata:
+
+```python api.py:223-251
+@app.get("/api/library")
+def get_library():
+    epubs = []
+    if os.path.exists(EPUB_DIR):
+        for file in os.listdir(EPUB_DIR):
+            if file.endswith(".epub"):
+                filepath = os.path.join(EPUB_DIR, file)
+                
+                # Default fallback names
+                title = file.replace(".epub", "").replace("_", " ")
+                author = "Unknown Author"
+                
+                # Extract the real Title and Author from the EPUB metadata
+                try:
+                    book = epub.read_epub(filepath)
+                    title_meta = book.get_metadata('DC', 'title')
+                    if title_meta: title = title_meta[0][0]
+                    
+                    author_meta = book.get_metadata('DC', 'creator')
+                    if author_meta: author = author_meta[0][0]
+                except Exception as e:
+                    pass
+                    
+                epubs.append({
+                    "filename": file, 
+                    "title": title,
+                    "author": author
+                })
+    return epubs
+```
+
+### Extract Cover
+
+Extracts the cover image from an EPUB for display in the UI:
+
+```python api.py:286-308
+@app.get("/api/cover/{filename}")
+def get_cover(filename: str):
+    # Ensure the filename is perfectly URL-decoded
+    clean_filename = urllib.parse.unquote(filename)
+    epub_path = os.path.join(EPUB_DIR, clean_filename)
+    
+    if not os.path.exists(epub_path):
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    try:
+        book = epub.read_epub(epub_path)
+        
+        # Find ANY image inside the EPUB
+        for item in book.get_items():
+            if item.media_type and item.media_type.startswith('image/'):
+                return Response(content=item.get_content(), media_type=item.media_type)
+                
+    except Exception as e:
+        print(f"Error reading cover for {clean_filename}: {e}")
+        
+    raise HTTPException(status_code=404, detail="No cover found")
+```
+
+## State Management
+
+### History Persistence
+
+Jobs are persisted to `jobs_history.json`:
+
+```python api.py:58-66
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_history(history_data):
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history_data, f, ensure_ascii=False, indent=2)
+```
+
+### Active Scrapes Tracking
+
+Paused jobs are tracked separately:
+
+```python api.py:68-76
+def load_active_scrapes():
+    if os.path.exists(ACTIVE_SCRAPES_FILE):
+        with open(ACTIVE_SCRAPES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_active_scrapes(data):
+    with open(ACTIVE_SCRAPES_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+```
+
+## Running the Server
+
+The backend can run standalone for development:
+
+```python api.py:407-410
+if __name__ == "__main__":
+    import uvicorn
+    # Use port 8000 by default
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+```
+
+<Note>
+In production, Electron starts this as a compiled binary using PyInstaller. The `if __name__ == "__main__"` block allows running `python api.py` directly during development.
+</Note>
+
+## Building the Binary
+
+For production deployment, the backend is compiled into a standalone executable:
+
+```bash
+pyinstaller --onefile --windowed --name engine api.py
+```
+
+This creates:
+- **macOS/Linux**: `backend/dist/engine`
+- **Windows**: `backend/dist/engine.exe`
+
+The binary includes:
+- Python interpreter
+- All dependencies (FastAPI, uvicorn, ebooklib)
+- The `api.py` script
+
+## Best Practices
+
+<Steps>
+  <Step title="Use JSONL for append-only data">
+    JSONL is perfect for chapter storage because you never need to read the entire file to append a new chapter.
+  </Step>
+  
+  <Step title="Handle missing files gracefully">
+    Always check if files exist before reading them and provide sensible defaults.
+  </Step>
+  
+  <Step title="Clean up temporary files">
+    Delete JSONL progress files after successful EPUB generation to save disk space.
+  </Step>
+  
+  <Step title="Validate input with Pydantic">
+    Use Pydantic models to automatically validate and document API request schemas.
+  </Step>
+</Steps>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Electron Main Process" icon="bolt" href="/architecture/electron-main">
+    Learn how Electron communicates with this backend via HTTP
+  </Card>
+  
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture/overview">
+    Understand how the backend fits into the overall system
+  </Card>
+</CardGroup>

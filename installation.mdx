@@ -1,0 +1,341 @@
+---
+title: Installation
+description: Get Universal Novel Scraper installed on Windows, macOS, or Linux
+icon: download
+---
+
+Universal Novel Scraper (UNS) is a cross-platform desktop application that lets you download web novels and convert them into EPUB books. This guide will walk you through installing UNS on your system.
+
+## Download Pre-Built Application
+
+The easiest way to get started is to download the latest release for your platform:
+
+<CardGroup cols={3}>
+  <Card title="Windows" icon="windows" href="https://github.com/OsamaTab/UNS/releases/latest">
+    Download the `.exe` installer
+  </Card>
+  <Card title="macOS" icon="apple" href="https://github.com/OsamaTab/UNS/releases/latest">
+    Download the `.dmg` disk image
+  </Card>
+  <Card title="Linux" icon="linux" href="https://github.com/OsamaTab/UNS/releases/latest">
+    Download the `.AppImage` or `.deb` package
+  </Card>
+</CardGroup>
+
+<Steps>
+  <Step title="Visit the Releases Page">
+    Navigate to the [UNS GitHub Releases](https://github.com/OsamaTab/UNS/releases/latest) page and download the installer for your operating system.
+  </Step>
+
+  <Step title="Install the Application">
+    <Tabs>
+      <Tab title="Windows">
+        1. Run the downloaded `.exe` file
+        2. Follow the installation wizard
+        3. Launch UNS from your Start Menu or Desktop shortcut
+        
+        <Note>
+          Windows may show a SmartScreen warning for unsigned applications. Click "More info" then "Run anyway" to proceed.
+        </Note>
+      </Tab>
+      
+      <Tab title="macOS">
+        1. Open the downloaded `.dmg` file
+        2. Drag the UNS icon to your Applications folder
+        3. Launch UNS from Launchpad or Applications
+        
+        <Warning>
+          macOS may block the app because it's not from an identified developer. Go to **System Settings → Privacy & Security** and click "Open Anyway".
+        </Warning>
+      </Tab>
+      
+      <Tab title="Linux">
+        For AppImage:
+        ```bash
+        chmod +x UNS-*.AppImage
+        ./UNS-*.AppImage
+        ```
+        
+        For Debian/Ubuntu (`.deb`):
+        ```bash
+        sudo dpkg -i uns_*.deb
+        sudo apt-get install -f  # Install dependencies if needed
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="First Launch">
+    When you first open UNS, the application will:
+    - Start the Python backend engine automatically
+    - Create necessary directories in your user data folder
+    - Initialize the library database
+    
+    You should see the main interface with the Download Manager ready to use.
+  </Step>
+</Steps>
+
+---
+
+## Building from Source
+
+If you want to contribute to development or customize UNS, you can build it from source.
+
+### Prerequisites
+
+Before building UNS, ensure you have the following installed:
+
+<CardGroup cols={2}>
+  <Card title="Node.js" icon="node-js">
+    **Version 18 or higher**
+    
+    Download from [nodejs.org](https://nodejs.org/)
+  </Card>
+  <Card title="Python" icon="python">
+    **Version 3.11 or higher**
+    
+    Download from [python.org](https://www.python.org/)
+  </Card>
+</CardGroup>
+
+<Accordion title="macOS Apple Silicon Requirements">
+  If you're on macOS with Apple Silicon (M1/M2/M3), install Xcode Command Line Tools:
+  
+  ```bash
+  xcode-select --install
+  ```
+  
+  This provides necessary build tools for native dependencies.
+</Accordion>
+
+### Clone the Repository
+
+<Steps>
+  <Step title="Clone the source code">
+    ```bash
+    git clone https://github.com/OsamaTab/UNS.git
+    cd UNS
+    ```
+  </Step>
+
+  <Step title="Install Frontend Dependencies">
+    Install Electron and React dependencies:
+    
+    <CodeGroup>
+      ```bash npm
+      npm install
+      ```
+      
+      ```bash yarn
+      yarn install
+      ```
+      
+      ```bash pnpm
+      pnpm install
+      ```
+    </CodeGroup>
+    
+    Then install frontend-specific dependencies:
+    
+    ```bash
+    cd frontend
+    npm install
+    cd ..
+    ```
+  </Step>
+
+  <Step title="Setup Python Backend">
+    Create a virtual environment and install Python dependencies:
+    
+    <CodeGroup>
+      ```bash macOS/Linux
+      cd backend
+      python -m venv venv
+      source venv/bin/activate
+      pip install -r requirements.txt
+      ```
+      
+      ```bash Windows
+      cd backend
+      python -m venv venv
+      venv\Scripts\activate
+      pip install -r requirements.txt
+      ```
+    </CodeGroup>
+    
+    The backend uses these key dependencies:
+    - **FastAPI** - REST API framework
+    - **uvicorn** - ASGI server
+    - **ebooklib** - EPUB generation
+    - **botasaurus** - Web scraping utilities
+  </Step>
+
+  <Step title="Build the Python Engine">
+    The Python backend must be compiled into a standalone executable:
+    
+    ```bash
+    cd backend
+    python -m PyInstaller \
+      --onefile \
+      --windowed \
+      --name engine \
+      api.py
+    ```
+    
+    <Note>
+      On Windows, the output will be `backend/dist/engine.exe`. On macOS/Linux, it's `backend/dist/engine`.
+    </Note>
+    
+    <Accordion title="Make the engine executable (macOS/Linux)">
+      ```bash
+      chmod +x backend/dist/engine
+      ```
+    </Accordion>
+  </Step>
+
+  <Step title="Run in Development Mode">
+    Start the application in development mode:
+    
+    ```bash
+    npm run dev
+    ```
+    
+    This will:
+    1. Start the Vite development server for React (port 5173)
+    2. Launch Electron with hot-reload enabled
+    3. Automatically start the Python engine backend (port 8000)
+  </Step>
+</Steps>
+
+### Build Production Executable
+
+To create a distributable application:
+
+```bash
+npm run build
+```
+
+This command:
+1. Builds the React frontend with Vite
+2. Packages everything with electron-builder
+3. Creates platform-specific installers in `dist_electron/`
+
+<Note>
+The build process automatically includes the Python engine from `backend/dist/` into the final package.
+</Note>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Engine Not Starting (macOS)">
+    If the Python engine fails to start, it may not have execute permissions:
+    
+    ```bash
+    chmod +x ./backend/dist/engine
+    ```
+    
+    If the issue persists, check Console.app for error messages related to code signing.
+  </Accordion>
+  
+  <Accordion title="PyInstaller Import Errors">
+    Ensure PyInstaller is executed **inside the activated virtual environment**:
+    
+    ```bash
+    source backend/venv/bin/activate  # or venv\Scripts\activate on Windows
+    python -m PyInstaller --version   # Verify it's installed in venv
+    ```
+    
+    If you still get import errors, try:
+    ```bash
+    pip install --upgrade pyinstaller
+    pip install --force-reinstall fastapi uvicorn ebooklib
+    ```
+  </Accordion>
+  
+  <Accordion title="Port 8000 Already in Use">
+    If another application is using port 8000, the engine won't start. Find and stop the conflicting process:
+    
+    <CodeGroup>
+      ```bash macOS/Linux
+      lsof -i :8000
+      kill -9 <PID>
+      ```
+      
+      ```bash Windows
+      netstat -ano | findstr :8000
+      taskkill /PID <PID> /F
+      ```
+    </CodeGroup>
+  </Accordion>
+  
+  <Accordion title="Electron Window Doesn't Appear">
+    Check the terminal output for errors. Common issues:
+    
+    - **Frontend not built**: Run `cd frontend && npm run build`
+    - **Vite dev server not ready**: Wait a few seconds after starting `npm run dev`
+    - **Hardware acceleration issues**: Try launching with:
+      ```bash
+      npm start -- --disable-gpu
+      ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## File Storage Locations
+
+UNS stores your data in platform-specific user directories:
+
+<Tabs>
+  <Tab title="Windows">
+    ```
+    C:\Users\<YourName>\AppData\Roaming\UNS\
+    ├── output/
+    │   ├── epubs/          # Downloaded EPUB files
+    │   ├── jobs/           # Temporary chapter data
+    │   └── history/        # Download history
+    └── providers/          # Custom provider scripts
+    ```
+  </Tab>
+  
+  <Tab title="macOS">
+    ```
+    ~/Library/Application Support/UNS/
+    ├── output/
+    │   ├── epubs/          # Downloaded EPUB files
+    │   ├── jobs/           # Temporary chapter data
+    │   └── history/        # Download history
+    └── providers/          # Custom provider scripts
+    ```
+  </Tab>
+  
+  <Tab title="Linux">
+    ```
+    ~/.config/UNS/
+    ├── output/
+    │   ├── epubs/          # Downloaded EPUB files
+    │   ├── jobs/           # Temporary chapter data
+    │   └── history/        # Download history
+    └── providers/          # Custom provider scripts
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  You can open the output folder directly from the Library page using the "Open Folder" button.
+</Note>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+    Learn how to download your first novel
+  </Card>
+  <Card title="Provider System" icon="puzzle-piece" href="/advanced/providers">
+    Install additional website scrapers
+  </Card>
+</CardGroup>

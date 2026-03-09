@@ -1,0 +1,727 @@
+---
+title: 'Provider System'
+description: 'Understanding and creating custom providers for website-specific scraping'
+icon: 'plug'
+---
+
+## What Are Providers?
+
+Providers are **JavaScript plugins** that teach Universal Novel Scraper how to extract content from specific websites. Each provider defines:
+
+- How to search for novels
+- How to extract novel metadata (title, author, cover, chapters)
+- How to scrape individual chapter content
+- How to find the next chapter URL
+
+This plugin system makes UNS **truly universal** - you can add support for any website without modifying the core application.
+
+<Info>
+  Providers are stored in your user data directory under `providers/` and are loaded dynamically at startup.
+</Info>
+
+## How Providers Work
+
+### Provider Loading System
+
+When UNS starts, it scans the providers directory and loads all `.js` files:
+
+```javascript
+// From main.js:63-87
+function loadExternalProviders() {
+    console.log("📂 Loading dynamic providers from:", providersDir);
+    const files = fs.readdirSync(providersDir);
+
+    // Reset providers object to allow for "hot-reloading" during installation
+    providers = {};
+
+    files.forEach(file => {
+        if (file.endsWith('.js')) {
+            const filePath = path.join(providersDir, file);
+            try {
+                // Clear Node's require cache to allow updating existing scripts
+                delete require.cache[require.resolve(filePath)];
+                const provider = require(filePath);
+
+                if (provider.id) {
+                    providers[provider.id] = provider;
+                    console.log(`✅ Loaded: ${provider.name} (v${provider.version || '1.0.0'})`);
+                }
+            } catch (err) {
+                console.error(`❌ Failed to load provider script ${file}:`, err);
+            }
+        }
+    });
+}
+```
+
+<Steps>
+  <Step title="Directory Scan">
+    UNS reads all `.js` files from the providers directory located at:
+    
+    ```javascript
+    const providersDir = path.join(userDataPath, 'providers');
+    ```
+    
+    **Platform-specific paths:**
+    - **Windows:** `%APPDATA%/universal-novel-scraper/providers/`
+    - **macOS:** `~/Library/Application Support/universal-novel-scraper/providers/`
+    - **Linux:** `~/.config/universal-novel-scraper/providers/`
+  </Step>
+
+  <Step title="Cache Clearing">
+    The require cache is cleared before loading to support hot-reloading:
+    
+    ```javascript
+    delete require.cache[require.resolve(filePath)];
+    ```
+    
+    This allows you to update providers without restarting the app.
+  </Step>
+
+  <Step title="Provider Registration">
+    Each provider is registered by its unique ID:
+    
+    ```javascript
+    if (provider.id) {
+        providers[provider.id] = provider;
+    }
+    ```
+  </Step>
+
+  <Step title="Availability">
+    Loaded providers appear in:
+    - Search page source selector
+    - Download manager source dropdown
+    - Marketplace provider list
+  </Step>
+</Steps>
+
+## Provider Structure
+
+A provider is a JavaScript module that exports a specific API:
+
+### Required Fields
+
+```javascript
+module.exports = {
+    // Unique identifier (used in file naming: <id>.js)
+    id: 'example-site',
+    
+    // Display name shown in UI
+    name: 'Example Site',
+    
+    // Version string for update tracking
+    version: '1.0.0',
+    
+    // Icon URL or emoji
+    icon: '📚',
+    
+    // Beta flag (optional)
+    beta: false,
+    
+    // Category tags for filtering
+    categories: ['fantasy', 'sci-fi'],
+    
+    // Search URL generator
+    getSearchUrl(query, page) {
+        return `https://example.com/search?q=${encodeURIComponent(query)}&page=${page}`;
+    },
+    
+    // JavaScript to extract search results from DOM
+    getListScript() {
+        return `
+            (() => {
+                const results = [];
+                document.querySelectorAll('.novel-item').forEach(item => {
+                    results.push({
+                        title: item.querySelector('.title').innerText,
+                        url: item.querySelector('a').href,
+                        cover: item.querySelector('img').src
+                    });
+                });
+                return results;
+            })()
+        `;
+    },
+    
+    // JavaScript to extract novel metadata
+    getNovelDetailsScript() {
+        return `
+            (() => {
+                return {
+                    description: document.querySelector('.description').innerText,
+                    allChapters: Array.from(document.querySelectorAll('.chapter-link')).map(a => ({
+                        title: a.innerText,
+                        url: a.href
+                    }))
+                };
+            })()
+        `;
+    },
+    
+    // JavaScript to extract chapter content
+    getChapterScript() {
+        return `
+            (() => {
+                const title = document.querySelector('.chapter-title').innerText;
+                const paragraphs = Array.from(document.querySelectorAll('.content p'))
+                    .map(p => p.innerText.trim())
+                    .filter(p => p.length > 0);
+                const nextBtn = document.querySelector('a.next-chapter');
+                return {
+                    title,
+                    paragraphs,
+                    nextUrl: nextBtn?.href || null
+                };
+            })()
+        `;
+    }
+};
+```
+
+### Optional Fields
+
+<AccordionGroup>
+  <Accordion title="getCategoryUrl(categoryId, page)">
+    Returns URL for browsing specific categories:
+    
+    ```javascript
+    getCategoryUrl(categoryId, page) {
+        return `https://example.com/category/${categoryId}?page=${page}`;
+    }
+    ```
+    
+    Used by the Explore feature to browse genres.
+  </Accordion>
+
+  <Accordion title="categories: []">
+    Array of category objects for the Explore page:
+    
+    ```javascript
+    categories: [
+        { id: 'fantasy', name: 'Fantasy' },
+        { id: 'sci-fi', name: 'Science Fiction' },
+        { id: 'romance', name: 'Romance' }
+    ]
+    ```
+  </Accordion>
+
+  <Accordion title="beta: true">
+    Marks the provider as experimental:
+    
+    ```javascript
+    beta: true
+    ```
+    
+    Displays a beta badge in the UI.
+  </Accordion>
+</AccordionGroup>
+
+## How Providers Are Used
+
+### 1. Novel Search
+
+When you search for a novel:
+
+```javascript
+// From main.js:356-369
+ipcMain.handle('search-novel', async (event, { sourceId, query, page = 1 }) => {
+    const provider = providers[sourceId];
+    if (!provider) return [];
+    if (!scraperWindow || scraperWindow.isDestroyed()) createScraperWindow();
+
+    try {
+        scraperWindow.webContents.stop();
+        await new Promise(r => setTimeout(r, 200));
+        await scraperWindow.loadURL(provider.getSearchUrl(query, page));
+        await scraperWindow.webContents.executeJavaScript(
+          `new Promise(resolve => { if (document.readyState === 'complete') resolve(); else window.addEventListener('load', resolve); })`
+        );
+        return await scraperWindow.webContents.executeJavaScript(provider.getListScript());
+    } catch (err) { return []; }
+});
+```
+
+<Steps>
+  <Step title="Provider Selection">
+    User selects a provider from the dropdown
+  </Step>
+  
+  <Step title="URL Generation">
+    `provider.getSearchUrl(query, page)` builds the search URL
+  </Step>
+  
+  <Step title="Page Load">
+    Chromium loads the search page
+  </Step>
+  
+  <Step title="DOM Extraction">
+    `provider.getListScript()` runs in the page context to extract results
+  </Step>
+  
+  <Step title="Results Display">
+    Extracted data is displayed in the Search UI
+  </Step>
+</Steps>
+
+### 2. Novel Details
+
+When you click on a search result:
+
+```javascript
+// From main.js:400-444 (simplified)
+ipcMain.handle('get-novel-details', async (event, args) => {
+    const sourceId = args?.sourceId || 'allnovel';
+    const novelUrl = args?.novelUrl || (typeof args === 'string' ? args : null);
+    const provider = providers[sourceId];
+    
+    if (!provider) {
+        console.error(`Provider "${sourceId}" not found in memory.`);
+        return { description: "Provider Error", allChapters: [] };
+    }
+
+    await scraperWindow.loadURL(novelUrl, { httpReferrer: 'https://www.google.com/' });
+    
+    // Retry logic for slow-loading sites
+    for (let attempts = 0; attempts < 15; attempts++) {
+        await new Promise(r => setTimeout(r, 1000));
+        if (scraperWindow.webContents.isLoading()) continue;
+        
+        try {
+            details = await scraperWindow.webContents.executeJavaScript(provider.getNovelDetailsScript());
+            if (details && (details.description || details.allChapters.length > 0)) {
+                return details;
+            }
+        } catch (jsErr) {
+            console.log(`JS Error: ${jsErr.message}`);
+        }
+    }
+});
+```
+
+This retrieves the novel description and complete chapter list.
+
+### 3. Chapter Scraping
+
+During the actual scraping process:
+
+```javascript
+// From main.js:172-202 (simplified)
+async function scrapeChapter(event, jobData, url, chapterNum) {
+    await scraperWindow.loadURL(url);
+    
+    const provider = providers[jobData.sourceId];
+    let pageData;
+
+    // Try Provider-Specific Script First
+    if (provider && typeof provider.getChapterScript === 'function') {
+        pageData = await scraperWindow.webContents.executeJavaScript(provider.getChapterScript());
+    } else {
+        // Fallback to Generic Selectors
+        pageData = await scraperWindow.webContents.executeJavaScript(`
+            (() => {
+                const title = document.querySelector('.chr-title, .chapter-title, h1, h2')?.innerText?.trim();
+                const contentSelectors = ['#chr-content p', '.chapter-content p', '.reading-content p'];
+                let paragraphs = [];
+                for (let selector of contentSelectors) {
+                    const found = Array.from(document.querySelectorAll(selector))
+                        .map(p => p.innerText.trim())
+                        .filter(p => p.length > 0);
+                    if (found.length > 0) { paragraphs = found; break; }
+                }
+                const nextBtn = Array.from(document.querySelectorAll('a'))
+                    .find(a => a.innerText.toLowerCase().includes('next'));
+                return { title, paragraphs, nextUrl: nextBtn?.href || null };
+            })()
+        `);
+    }
+
+    // Save chapter data to backend
+    await axios.post('http://127.0.0.1:8000/api/save-chapter', {
+        job_id: jobData.job_id,
+        chapter_title: pageData.title,
+        content: pageData.paragraphs,
+        next_url: pageData.nextUrl,
+        // ... other fields
+    });
+}
+```
+
+<Info>
+  If a provider doesn't define `getChapterScript()`, UNS falls back to generic CSS selectors that work on many common novel sites.
+</Info>
+
+## Installing Providers
+
+### From Marketplace
+
+<Steps>
+  <Step title="Open Marketplace">
+    Navigate to the Marketplace page in the sidebar.
+  </Step>
+
+  <Step title="Browse Providers">
+    View available community providers with their icons, versions, and beta status.
+  </Step>
+
+  <Step title="Click Install">
+    Click the "Install" button next to the provider you want.
+  </Step>
+
+  <Step title="Automatic Download">
+    The app downloads the provider script from the remote URL:
+    
+    ```javascript
+    // From main.js:327-352
+    ipcMain.handle('install-from-url', async (event, { id, url }) => {
+        const cacheBusterUrl = `${url}?t=${Date.now()}`;
+        const response = await axios.get(cacheBusterUrl);
+        const fileName = `${id.toLowerCase()}.js`;
+        const filePath = path.join(app.getPath('userData'), 'providers', fileName);
+        
+        if (fs.existsSync(filePath))
+            fs.unlinkSync(filePath);
+        
+        fs.writeFileSync(filePath, response.data);
+        loadExternalProviders(); // Reload immediately
+        return true;
+    });
+    ```
+  </Step>
+
+  <Step title="Immediate Availability">
+    The provider is loaded instantly without restarting the app.
+  </Step>
+</Steps>
+
+### Manual Installation
+
+<Steps>
+  <Step title="Find Provider Directory">
+    Navigate to your platform's provider directory:
+    
+    **Windows:**
+    ```
+    %APPDATA%\universal-novel-scraper\providers\
+    ```
+    
+    **macOS:**
+    ```
+    ~/Library/Application Support/universal-novel-scraper/providers/
+    ```
+    
+    **Linux:**
+    ```
+    ~/.config/universal-novel-scraper/providers/
+    ```
+  </Step>
+
+  <Step title="Create Provider File">
+    Save your provider script as `<provider-id>.js`
+    
+    Example: `example-site.js`
+  </Step>
+
+  <Step title="Restart or Reload">
+    - **Option 1:** Restart UNS
+    - **Option 2:** Use the Marketplace "Refresh" button (if available)
+  </Step>
+
+  <Step title="Verify Loading">
+    Check the console/logs for:
+    ```
+    ✅ Loaded: Example Site (v1.0.0)
+    ```
+  </Step>
+</Steps>
+
+## Creating Custom Providers
+
+### Step 1: Analyze the Website
+
+<Steps>
+  <Step title="Open Browser DevTools">
+    Visit the target website and press `F12` to open Developer Tools.
+  </Step>
+
+  <Step title="Inspect Search Page">
+    Search for a novel and examine the HTML structure:
+    
+    - What CSS class names are used for result items?
+    - Where is the title, cover image, and novel URL?
+    - What's the URL pattern for search? (`?q=`, `?search=`, etc.)
+  </Step>
+
+  <Step title="Inspect Novel Page">
+    Click on a novel and examine:
+    
+    - Where is the description?
+    - How are chapters listed? (table, list, divs?)
+    - What attributes contain chapter URLs?
+  </Step>
+
+  <Step title="Inspect Chapter Page">
+    Open a chapter and find:
+    
+    - Chapter title element
+    - Content container (usually a div with multiple `<p>` tags)
+    - Next chapter button/link
+  </Step>
+</Steps>
+
+### Step 2: Write the Provider
+
+Create a new file `example-site.js`:
+
+```javascript
+module.exports = {
+    id: 'example-site',
+    name: 'Example Novel Site',
+    version: '1.0.0',
+    icon: '📖',
+    beta: false,
+    categories: [
+        { id: 'all', name: 'All Novels' },
+        { id: 'popular', name: 'Popular' }
+    ],
+
+    getSearchUrl(query, page) {
+        // Build search URL from query and page number
+        return `https://example-site.com/search?q=${encodeURIComponent(query)}&page=${page}`;
+    },
+
+    getCategoryUrl(categoryId, page) {
+        return `https://example-site.com/category/${categoryId}?page=${page}`;
+    },
+
+    getListScript() {
+        // JavaScript that runs in the page context
+        return `
+            (() => {
+                const results = [];
+                // Adjust selectors to match the site's HTML
+                document.querySelectorAll('.search-result-item').forEach(item => {
+                    const titleEl = item.querySelector('.book-title');
+                    const linkEl = item.querySelector('a.book-link');
+                    const imgEl = item.querySelector('img.cover');
+                    
+                    if (titleEl && linkEl) {
+                        results.push({
+                            title: titleEl.innerText.trim(),
+                            url: linkEl.href,
+                            cover: imgEl?.src || ''
+                        });
+                    }
+                });
+                return results;
+            })()
+        `;
+    },
+
+    getNovelDetailsScript() {
+        return `
+            (() => {
+                // Extract description
+                const descEl = document.querySelector('.novel-description');
+                const description = descEl ? descEl.innerText.trim() : 'No description available.';
+                
+                // Extract all chapter links
+                const allChapters = [];
+                document.querySelectorAll('.chapter-list a').forEach(link => {
+                    allChapters.push({
+                        title: link.innerText.trim(),
+                        url: link.href
+                    });
+                });
+                
+                return { description, allChapters };
+            })()
+        `;
+    },
+
+    getChapterScript() {
+        return `
+            (() => {
+                // Extract chapter title
+                const titleEl = document.querySelector('h1.chapter-title');
+                const title = titleEl ? titleEl.innerText.trim() : 'Untitled Chapter';
+                
+                // Extract paragraphs
+                const paragraphs = [];
+                document.querySelectorAll('.chapter-content p').forEach(p => {
+                    const text = p.innerText.trim();
+                    if (text.length > 0) {
+                        paragraphs.push(text);
+                    }
+                });
+                
+                // Find next chapter link
+                const nextLink = document.querySelector('a.next-chapter');
+                const nextUrl = nextLink ? nextLink.href : null;
+                
+                return { title, paragraphs, nextUrl };
+            })()
+        `;
+    }
+};
+```
+
+### Step 3: Test the Provider
+
+<Steps>
+  <Step title="Install Provider">
+    Copy the file to your providers directory.
+  </Step>
+
+  <Step title="Restart UNS">
+    Close and reopen the application.
+  </Step>
+
+  <Step title="Check Console">
+    Look for the load message:
+    ```
+    ✅ Loaded: Example Novel Site (v1.0.0)
+    ```
+  </Step>
+
+  <Step title="Test Search">
+    - Go to Search page
+    - Select your provider
+    - Search for a novel
+    - Verify results appear correctly
+  </Step>
+
+  <Step title="Test Scraping">
+    - Click on a result
+    - Verify novel details load
+    - Start a test scrape of 1-2 chapters
+    - Check the output EPUB
+  </Step>
+</Steps>
+
+## Troubleshooting Providers
+
+<AccordionGroup>
+  <Accordion title="Provider not appearing in list">
+    **Possible causes:**
+    
+    1. File not in correct directory
+    2. File doesn't end with `.js`
+    3. Missing `id` field in module.exports
+    4. Syntax error preventing load
+    
+    **Check the console for:**
+    ```
+    ❌ Failed to load provider script <file>: <error>
+    ```
+  </Accordion>
+
+  <Accordion title="Search returns empty results">
+    **Debug steps:**
+    
+    1. Enable "Show Browser" in Download page
+    2. Perform a search
+    3. Watch what page loads
+    4. Open browser DevTools on the scraper window
+    5. Manually run your `getListScript()` in the console
+    6. Check if selectors match the actual HTML
+  </Accordion>
+
+  <Accordion title="Chapter scraping fails">
+    **Common issues:**
+    
+    1. **Wrong selectors:** The site changed their HTML structure
+    2. **Dynamic content:** Content loads via JavaScript (try adding delays)
+    3. **Authentication:** Site requires login (not supported)
+    4. **Anti-bot protection:** Use Cloudflare bypass
+    
+    **Solution:**
+    - Inspect the actual chapter page HTML
+    - Update `getChapterScript()` selectors
+    - Test in browser console first
+  </Accordion>
+
+  <Accordion title="Next chapter detection failing">
+    If scraping stops after one chapter:
+    
+    ```javascript
+    // Make sure your nextUrl finder is robust
+    const nextBtn = Array.from(document.querySelectorAll('a')).find(a => {
+        const text = (a.innerText || '').toLowerCase();
+        const href = a.getAttribute('href') || '';
+        return (text.includes('next') || href.includes('next')) && 
+               !text.includes('previous') &&
+               a.href.startsWith('http');
+    });
+    ```
+    
+    **Tips:**
+    - Use `Array.from(document.querySelectorAll('a'))` to search all links
+    - Filter out "previous" links
+    - Ensure it's a full URL (not `javascript:void(0)`)
+  </Accordion>
+</AccordionGroup>
+
+## Provider Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Robust Selectors" icon="crosshairs">
+    Use multiple fallback selectors:
+    
+    ```javascript
+    const title = document.querySelector(
+      'h1.title, .chapter-title, h1, h2'
+    )?.innerText;
+    ```
+  </Card>
+  
+  <Card title="Error Handling" icon="shield">
+    Always use optional chaining and provide defaults:
+    
+    ```javascript
+    title: titleEl?.innerText?.trim() || 'Untitled'
+    ```
+  </Card>
+  
+  <Card title="Trim Whitespace" icon="broom">
+    Clean up extracted text:
+    
+    ```javascript
+    .map(p => p.innerText.trim())
+    .filter(p => p.length > 0)
+    ```
+  </Card>
+  
+  <Card title="Test Edge Cases" icon="vial">
+    Test with:
+    - Novels with special characters
+    - Very long chapters
+    - Incomplete chapter lists
+    - Sites with ads/popups
+  </Card>
+</CardGroup>
+
+## Sharing Providers
+
+Once you've created a working provider:
+
+1. **Test thoroughly** with multiple novels from the site
+2. **Document** any special requirements or limitations
+3. **Share** in the UNS community Discord or GitHub
+4. **Submit** for inclusion in the official marketplace
+
+<Info>
+  Community providers are hosted on GitHub and automatically available in the Marketplace for all users.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cloudflare Bypass" icon="shield-check" href="/advanced/cloudflare-bypass">
+    Learn how to scrape protected sites
+  </Card>
+  
+  <Card title="Scraping Flow" icon="diagram-project" href="/advanced/scraping-flow">
+    Understand the complete scraping pipeline
+  </Card>
+</CardGroup>

@@ -1,0 +1,401 @@
+---
+title: 'Electron Main Process'
+description: 'Browser automation, IPC handling, and Python engine lifecycle management'
+icon: 'bolt'
+---
+
+## Overview
+
+The Electron main process (`main.js`) is the orchestration layer that coordinates all scraping operations. It manages browser windows, handles IPC communication with the React frontend, controls the Python backend lifecycle, and executes content extraction scripts.
+
+## Key Responsibilities
+
+<CardGroup cols={2}>
+  <Card title="Window Management" icon="window-maximize">
+    Creates and controls both the main application window and the invisible scraper browser window
+  </Card>
+  
+  <Card title="Browser Automation" icon="robot">
+    Navigates to URLs, executes extraction scripts, and handles Cloudflare challenges
+  </Card>
+  
+  <Card title="Python Engine Lifecycle" icon="power-off">
+    Starts, monitors, and terminates the FastAPI backend process
+  </Card>
+  
+  <Card title="Provider Plugin System" icon="puzzle-piece">
+    Dynamically loads and manages site-specific scraping scripts
+  </Card>
+</CardGroup>
+
+## Global State Management
+
+The main process maintains global state for tracking scraping operations:
+
+```javascript main.js:7-18
+let mainWindow = null;
+let scraperWindow = null;
+let pythonProcess = null;
+let isScraping = false;
+let scrapeCancelled = false;
+let providers = {}; // Now populated dynamically
+
+let enableCloudflareBypass = false;
+let currentJobId = null;
+let waitingForHuman = false;
+let showBrowserWindow = false;
+```
+
+<Info>
+These variables track the application state across IPC handlers. The `providers` object is populated dynamically from JavaScript files in the user's data directory.
+</Info>
+
+## Python Backend Lifecycle
+
+### Starting the Engine
+
+The Python FastAPI backend is bundled as a compiled binary and started as a child process:
+
+```javascript main.js:31-49
+function startPythonBackend() {
+    const isPackaged = app.isPackaged;
+    const enginePath = isPackaged
+        ? path.join(process.resourcesPath, 'bin', 'engine')
+        : path.join(__dirname, 'backend', 'dist', 'engine');
+
+    const finalPath = (isPackaged && process.platform === 'win32') ? `${enginePath}.exe` : enginePath;
+
+    if (process.platform === 'darwin' && fs.existsSync(finalPath)) {
+        require('child_process').execSync(`chmod +x "${finalPath}"`);
+    }
+
+    pythonProcess = execFile(finalPath, [outputDir], { windowsHide: true }, (err) => {
+        if (err) console.error("❌ Engine failed:", err);
+    });
+
+    pythonProcess.stdout?.on('data', (data) => console.log(`🐍 Python: ${data}`));
+    pythonProcess.stderr?.on('data', (data) => console.error(`🐍 Python Error: ${data}`));
+}
+```
+
+<Accordion title="Understanding the Path Resolution">
+  The engine path differs between development and production:
+  
+  **Development**: `backend/dist/engine` (local build)
+  
+  **Production**: `process.resourcesPath/bin/engine` (bundled in the app)
+  
+  On macOS, the engine must be made executable using `chmod +x`. On Windows, the `.exe` extension is appended automatically.
+</Accordion>
+
+### Health Check & Ready Signal
+
+After starting the Python process, Electron polls the health endpoint to ensure the API is ready:
+
+```javascript main.js:51-61
+async function waitForEngine(mainWindow, attempts = 10) {
+    for (let i = 0; i < attempts; i++) {
+        try {
+            await axios.get('http://127.0.0.1:8000/api/health');
+            mainWindow.webContents.send('engine-ready');
+            return true;
+        } catch (e) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+}
+```
+
+Once the engine responds successfully, an `engine-ready` event is sent to the React frontend via IPC.
+
+## Window Management
+
+### Main Application Window
+
+The main window hosts the React application:
+
+```javascript main.js:90-106
+function createWindow() {
+    mainWindow = new BrowserWindow({
+        width: 1200, height: 1000,
+        title: "Universal Novel Scraper",
+        icon: path.join(__dirname, 'assets/icon.png'),
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true, nodeIntegration: false, devTools: true
+        }
+    });
+
+    if (app.isPackaged) {
+        mainWindow.loadFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
+    } else {
+        mainWindow.loadURL(process.env.ELECTRON_START_URL || 'http://localhost:5173');
+    }
+}
+```
+
+<Warning>
+Notice that `contextIsolation: true` and `nodeIntegration: false` are critical security settings. All communication between the renderer and main process must go through the `preload.js` bridge.
+</Warning>
+
+### Scraper Browser Window
+
+The scraper window is an invisible Chromium instance used for web scraping:
+
+```javascript main.js:108-123
+function createScraperWindow() {
+    if (scraperWindow && !scraperWindow.isDestroyed()) return scraperWindow;
+
+    scraperWindow = new BrowserWindow({
+        width: 1000, height: 700, show: false,
+        title: "Live Scraper Feed",
+        webPreferences: { nodeIntegration: false, contextIsolation: true }
+    });
+
+    scraperWindow.webContents.userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+    scraperWindow.on('close', (e) => {
+        if (!app.isQuitting) { e.preventDefault(); scraperWindow.hide(); }
+    });
+
+    return scraperWindow;
+}
+```
+
+**Key Features**:
+- Hidden by default (`show: false`)
+- Custom User-Agent string to appear as Chrome
+- Prevents destruction on close (just hides instead)
+- Can be shown for debugging or manual Cloudflare solving
+
+## Cloudflare Detection & Bypass
+
+### Detection Logic
+
+The app can detect when a page is showing a Cloudflare challenge:
+
+```javascript main.js:126-133
+async function detectCloudflare(window) {
+    const title = await window.webContents.getTitle();
+    const url = window.webContents.getURL();
+    const titleIndicators = ['just a moment', 'cloudflare', 'attention required', 'verify you are human'];
+    const hasTitleIndicator = titleIndicators.some(i => title.toLowerCase().includes(i));
+    const hasCFElements = await window.webContents.executeJavaScript(`!!document.querySelector('#cf-challenge-running, #cf-please-wait, #turnstile-wrapper, .cf-turnstile')`);
+    return hasTitleIndicator || hasCFElements || url.toLowerCase().includes('cloudflare');
+}
+```
+
+This checks for:
+1. Common Cloudflare page titles
+2. DOM elements specific to Cloudflare challenges
+3. "cloudflare" in the current URL
+
+### Manual Solve Flow
+
+When Cloudflare is detected and bypass mode is enabled, the scraper window is shown to the user:
+
+```javascript main.js:160-170
+if (hasCloudflare && enableCloudflareBypass) {
+    event.sender.send('scrape-status', { status: 'CLOUDFLARE', message: '🛡️ Manual solve required.' });
+    scraperWindow.show(); scraperWindow.focus();
+    waitingForHuman = true;
+    const solved = await waitForCloudflareSolve(scraperWindow, jobData.job_id);
+    waitingForHuman = false;
+    if (!solved || scrapeCancelled) return;
+    await new Promise(r => setTimeout(r, 2000));
+    if (!showBrowserWindow) scraperWindow.hide();
+}
+```
+
+The user can then manually complete the challenge, and the scraping continues automatically once the challenge is passed.
+
+## Content Extraction
+
+### Provider-Based Extraction
+
+Each provider can define a custom extraction script, or fall back to the generic one:
+
+```javascript main.js:172-202
+const provider = providers[jobData.sourceId];
+
+let pageData;
+
+// Try Provider-Specific Script First, else Fallback to Global
+if (provider && typeof provider.getChapterScript === 'function') {
+    pageData = await scraperWindow.webContents.executeJavaScript(provider.getChapterScript());
+} else {
+    pageData = await scraperWindow.webContents.executeJavaScript(`
+        (() => {
+            const title = document.querySelector('.chr-title, .chapter-title, h1, h2, .entry-title')?.innerText?.trim();
+            const contentSelectors = ['#chr-content p', '.chapter-content p', '.reading-content p', '#chapter-content p', '.fr-view p', '.text-left p'];
+            let paragraphs = [];
+            for (let selector of contentSelectors) {
+                const found = Array.from(document.querySelectorAll(selector)).map(p => p.innerText.trim()).filter(p => p.length > 0);
+                if (found.length > 0) { paragraphs = found; break; }
+            }
+            
+            const nextBtn = Array.from(document.querySelectorAll('a')).find(a => {
+                const text = (a.innerText || '').toLowerCase();
+                const absoluteHref = a.href || '';
+                return (text.includes('next') || a.getAttribute('href')?.includes('next')) && 
+                       !text.includes('previous') && 
+                       absoluteHref.startsWith('http') && 
+                       absoluteHref.split('#')[0] !== window.location.href.split('#')[0];
+            });
+            
+            return { title: title || 'Untitled Chapter', paragraphs, nextUrl: nextBtn?.href || null };
+        })()
+    `);
+}
+```
+
+<Note>
+This script is executed **inside the web page's DOM context**, not in Node.js. It returns an object with `title`, `paragraphs`, and `nextUrl` which drives the recursive chapter scraping.
+</Note>
+
+## IPC Handlers
+
+### Starting a Scrape
+
+```javascript main.js:446-464
+ipcMain.on('start-browser-scrape', async (event, jobData) => {
+    if (isScraping && currentJobId === jobData.job_id) return;
+    scrapeCancelled = false; isScraping = true; currentJobId = jobData.job_id;
+    enableCloudflareBypass = jobData.enable_cloudflare_bypass || false;
+    showBrowserWindow = false;
+
+    let startChapter = 1, actualUrl = jobData.start_url;
+    try {
+        const statusRes = await axios.get(`http://127.0.0.1:8000/api/status/${jobData.job_id}`);
+        const historyRes = await axios.get(`http://127.0.0.1:8000/api/history`);
+        const match = statusRes.data.progress.match(/\d+/);
+        startChapter = match ? parseInt(match[0]) + 1 : 1;
+        const savedJob = historyRes.data[jobData.job_id];
+        if (savedJob?.start_url) actualUrl = savedJob.start_url;
+    } catch (e) { }
+
+    event.sender.send('scrape-status', { status: 'STARTED', message: `🚀 ${startChapter > 1 ? 'Resuming' : 'Starting'}...` });
+    await scrapeChapter(event, jobData, actualUrl, startChapter);
+});
+```
+
+### Stopping a Scrape
+
+```javascript main.js:466-474
+ipcMain.on('stop-scrape', async (event, jobData) => {
+    scrapeCancelled = true; isScraping = false;
+    event.sender.send('scrape-status', { status: 'STOPPING', message: '⏹️ Stopping...' });
+    try {
+        await axios.post('http://127.0.0.1:8000/api/stop-scrape', { job_id: jobData.job_id, reason: 'user_requested' });
+        event.sender.send('scrape-status', { status: 'PAUSED', message: '⏸️ Paused.' });
+        if (scraperWindow && !scraperWindow.isDestroyed()) { scraperWindow.webContents.stop(); scraperWindow.hide(); }
+    } catch (err) { }
+});
+```
+
+### Provider Management
+
+```javascript main.js:296-305
+ipcMain.handle('get-providers', async () => {
+    // Expose the categories array to the frontend
+    return Object.values(providers).map(p => ({
+        id: p.id,
+        name: p.name,
+        version: p.version || '1.0.0',
+        icon: p.icon,
+        beta: p.beta || false,
+        categories: p.categories || []
+    }));
+});
+```
+
+## Dynamic Provider Loading
+
+Providers are JavaScript files that can be installed at runtime:
+
+```javascript main.js:63-87
+function loadExternalProviders() {
+    console.log("📂 Loading dynamic providers from:", providersDir);
+    const files = fs.readdirSync(providersDir);
+
+    // Reset providers object to allow for "hot-reloading" during installation
+    providers = {};
+
+    files.forEach(file => {
+        if (file.endsWith('.js')) {
+            const filePath = path.join(providersDir, file);
+            try {
+                // Clear Node's require cache to allow updating existing scripts
+                delete require.cache[require.resolve(filePath)];
+                const provider = require(filePath);
+
+                if (provider.id) {
+                    providers[provider.id] = provider;
+                    console.log(`✅ Loaded: ${provider.name} (v${provider.version || '1.0.0'})`);
+                }
+            } catch (err) {
+                console.error(`❌ Failed to load provider script ${file}:`, err);
+            }
+        }
+    });
+}
+```
+
+Providers are loaded on app startup and can be hot-reloaded when new ones are installed.
+
+## Application Lifecycle
+
+### Startup Sequence
+
+```javascript main.js:488-493
+app.on('ready', () => {
+    loadExternalProviders(); // Initial load of scripts
+    startPythonBackend();
+    createWindow();
+    setTimeout(() => waitForEngine(mainWindow), 1000);
+});
+```
+
+### Shutdown Cleanup
+
+```javascript main.js:495-498
+app.on('will-quit', () => {
+    if (pythonProcess) pythonProcess.kill();
+    if (scraperWindow && !scraperWindow.isDestroyed()) scraperWindow.destroy();
+});
+```
+
+<Warning>
+Always clean up child processes on quit to prevent orphaned Python processes from running in the background.
+</Warning>
+
+## Best Practices
+
+<Steps>
+  <Step title="Always use contextIsolation">
+    Never expose Node.js APIs directly to renderer processes. Use `preload.js` as a secure bridge.
+  </Step>
+  
+  <Step title="Handle window destruction gracefully">
+    Check if windows exist and are not destroyed before interacting with them.
+  </Step>
+  
+  <Step title="Clean up event listeners">
+    Remove IPC listeners in the renderer when components unmount to prevent memory leaks.
+  </Step>
+  
+  <Step title="Monitor child processes">
+    Always kill child processes (like the Python backend) when the app quits.
+  </Step>
+</Steps>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Python Backend" icon="python" href="/architecture/python-backend">
+    Learn about the FastAPI endpoints that the main process calls
+  </Card>
+  
+  <Card title="React Frontend" icon="react" href="/architecture/react-frontend">
+    Understand how the UI triggers IPC events
+  </Card>
+</CardGroup>

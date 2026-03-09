@@ -1,0 +1,467 @@
+---
+title: 'Library Manager'
+description: 'Organize, browse, and read your EPUB collection with built-in reader, progress tracking, and smart filtering'
+icon: 'books'
+---
+
+## Overview
+
+The **Library Manager** is your personal EPUB collection hub. It provides a modern interface for managing downloaded novels, tracking reading progress, and accessing a built-in EPUB reader with customizable themes.
+
+<Note>
+  All EPUBs stored in your library include extracted cover images, metadata, and automatic progress synchronization.
+</Note>
+
+---
+
+## Library Views
+
+### Grid View
+
+The default card-based layout displays:
+
+- **Cover images** extracted from EPUB files
+- **Reading progress** bars (for in-progress books)
+- **Completion badges** (green "Completed" tag)
+- **Quick actions** on hover (Read, Open, Download, Delete)
+
+<Tabs>
+  <Tab title="Features">
+    - Visual browsing with large cover previews
+    - Hover effects reveal action buttons
+    - Progress indicators at bottom of each card
+    - Animated transitions on page load
+    - Responsive grid (2-6 columns based on screen size)
+  </Tab>
+  
+  <Tab title="Implementation">
+    ```jsx
+    // Grid layout configuration
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 
+                    lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-10">
+      {books.map((book) => (
+        <NovelCard 
+          cover={`${API_BASE}/cover/${book.filename}`}
+          progress={readProgress[book.filename]}
+          onClick={() => handleReadNow(book)}
+        />
+      ))}
+    </div>
+    ```
+  </Tab>
+</Tabs>
+
+### List View
+
+Compact row-based layout showing:
+
+- **Thumbnail covers** (12x16px)
+- **Title and author** in single row
+- **Progress text** (e.g., "Ch 45 / 120")
+- **Quick actions** on hover
+
+<Tip>
+  List view is ideal for large collections where you need to scan titles quickly.
+</Tip>
+
+---
+
+## Library Statistics
+
+The header displays interactive filter buttons:
+
+<CardGroup cols={3}>
+  <Card title="Total Books" icon="books">
+    Complete count of all EPUBs in your library
+  </Card>
+  
+  <Card title="Reading" icon="bookmark">
+    Books with progress > 0% but < 100%
+  </Card>
+  
+  <Card title="Completed" icon="check-circle">
+    Books where you've reached the final chapter
+  </Card>
+</CardGroup>
+
+### Status Filtering
+
+Click any statistic card to filter the library:
+
+```jsx
+// Filter logic
+const filteredBooks = books.filter(book => {
+  const prog = readProgress[book.filename];
+  const isCompleted = prog?.current === prog?.total;
+  const isReading = prog?.current > 0 && prog?.current < prog?.total;
+  
+  if (statusFilter === 'reading' && !isReading) return false;
+  if (statusFilter === 'completed' && !isCompleted) return false;
+  
+  return true;
+});
+```
+
+<Info>
+  Active filters are highlighted with a blue border and ring effect.
+</Info>
+
+---
+
+## Search & Sort
+
+### Search Bar
+
+Instant search across:
+
+- **Title**: Novel name
+- **Author**: Author metadata
+
+```
+🔍 Search by title or author...
+```
+
+<Tip>
+  Search is case-insensitive and matches partial strings (e.g., "estate" finds "The Greatest Estate Developer").
+</Tip>
+
+### Sort Options
+
+<Tabs>
+  <Tab title="Available Sorts">
+    | Sort Type | Order |
+    |-----------|-------|
+    | **Title** | A-Z or Z-A |
+    | **Author** | A-Z or Z-A |
+    | **Newest First** | By date added (recent first) |
+    | **Oldest First** | By date added (oldest first) |
+    | **File Size** | Smallest to largest |
+  </Tab>
+  
+  <Tab title="Direction Toggle">
+    Click the **sort direction** button to reverse order:
+    
+    - **Ascending** (🔼): A-Z, oldest first, smallest first
+    - **Descending** (🔽): Z-A, newest first, largest first
+  </Tab>
+</Tabs>
+
+---
+
+## Book Actions
+
+### Individual Actions
+
+Hover over any book card to reveal:
+
+<CardGroup cols={3}>
+  <Card title="Read Now" icon="book-open">
+    Opens the built-in EPUB reader (preserves progress)
+  </Card>
+  
+  <Card title="Open Externally" icon="external-link">
+    Launches EPUB in your system's default reader (e.g., Apple Books, Calibre)
+  </Card>
+  
+  <Card title="Download" icon="download">
+    Downloads the EPUB file to your system
+  </Card>
+  
+  <Card title="Delete" icon="trash">
+    Removes the EPUB from library (requires confirmation)
+  </Card>
+</CardGroup>
+
+### Bulk Actions
+
+Enable **Selection Mode** to manage multiple books:
+
+<Steps>
+  <Step title="Enter Selection Mode">
+    Click the **checkmark icon** in the toolbar
+  </Step>
+  
+  <Step title="Select Books">
+    Click on book cards to toggle selection (blue ring indicates selected)
+  </Step>
+  
+  <Step title="Bulk Delete">
+    Click **Delete** button to remove all selected books at once
+  </Step>
+  
+  <Step title="Exit Selection">
+    Click **Cancel** or complete the bulk action
+  </Step>
+</Steps>
+
+<Warning>
+  Bulk delete permanently removes EPUBs from the library. This action cannot be undone.
+</Warning>
+
+---
+
+## EPUB Reader
+
+### Opening a Book
+
+Click **Read Now** or the book card to launch the full-screen reader.
+
+<Note>
+  The reader automatically resumes from your last read position using locally stored CFI (Canonical Fragment Identifier) bookmarks.
+</Note>
+
+### Reader Interface
+
+<Tabs>
+  <Tab title="Controls">
+    **Top Navigation Bar:**
+    
+    - **Title & Author**: Displayed prominently
+    - **Chapter Progress**: Live indicator (e.g., "Ch. 24 / 150")
+    - **Theme Toggle**: Switch between dark and light modes
+    - **Close Button**: Exit reader and save progress
+    
+    **Reading Area:**
+    
+    - Click **left edge** to go to previous page
+    - Click **right edge** to advance to next page
+    - Click **center** to toggle navigation overlay
+    - **Table of Contents**: Hamburger menu (left sidebar)
+  </Tab>
+  
+  <Tab title="Progress Tracking">
+    Progress is saved automatically every time you turn a page:
+    
+    ```jsx
+    // Progress storage
+    const progressData = {
+      cfi: epubcifi,           // Page position
+      current: currentChapter,  // Chapter number
+      total: totalChapters      // Total chapter count
+    };
+    
+    localStorage.setItem(
+      `epub-progress-${book.filename}`, 
+      JSON.stringify(progressData)
+    );
+    ```
+    
+    This data persists across app restarts.
+  </Tab>
+  
+  <Tab title="Theme Customization">
+    **Dark Mode (default):**
+    
+    - Background: `#09090b` (near-black)
+    - Text: `#e4e4e7` (light gray)
+    - Links: `#3b82f6` (blue)
+    
+    **Light Mode:**
+    
+    - Background: `#ffffff` (white)
+    - Text: `#18181b` (dark gray)
+    - Links: `#2563eb` (darker blue)
+    
+    <Tip>
+      Theme preference is remembered per-session but resets on app restart. This will be made persistent in a future update.
+    </Tip>
+  </Tab>
+</Tabs>
+
+### Keyboard Navigation
+
+<CardGroup cols={2}>
+  <Card title="Arrow Keys" icon="keyboard">
+    **Left/Right**: Navigate pages
+    
+    **Up/Down**: Scroll within current page (if content overflows)
+  </Card>
+  
+  <Card title="Escape Key" icon="keyboard">
+    Quickly exit the reader and return to library
+  </Card>
+</CardGroup>
+
+---
+
+## Importing EPUBs
+
+### Manual Import
+
+<Steps>
+  <Step title="Click Import Button">
+    Select **Import EPUB** in the library header
+  </Step>
+  
+  <Step title="Choose File">
+    Native file picker opens → select `.epub` file
+  </Step>
+  
+  <Step title="Automatic Processing">
+    - File copied to library directory
+    - Cover extracted via backend
+    - Metadata parsed
+    - Book appears in library grid
+  </Step>
+</Steps>
+
+```jsx
+// Import handler
+const handleAddEpub = async () => {
+  if (window.electronAPI) {
+    const added = await window.electronAPI.addEpubToLibrary();
+    if (added) fetchBooks(); // Refresh library
+  }
+};
+```
+
+### Browse Library Directory
+
+Click **Browse Directory** to open your library folder in the system file manager:
+
+- **Windows**: `%APPDATA%/UNS/library/`
+- **macOS**: `~/Library/Application Support/UNS/library/`
+- **Linux**: `~/.config/UNS/library/`
+
+<Info>
+  You can manually add EPUBs by copying them to this directory. Restart the app to see them in the library.
+</Info>
+
+---
+
+## Reading Progress Details
+
+### Progress Calculation
+
+```jsx
+const percentage = (current / total) * 100;
+```
+
+| Status | Condition |
+|--------|----------|
+| **Not Started** | `current === 0` |
+| **In Progress** | `current > 0 && current < total` |
+| **Completed** | `current === total` |
+
+### Visual Indicators
+
+<Tabs>
+  <Tab title="Grid View">
+    - **Progress bar**: Thin line at bottom of card (blue gradient)
+    - **Percentage**: Hidden in grid, visible on hover
+    - **Completion badge**: Green "Completed" tag at top-left
+  </Tab>
+  
+  <Tab title="List View">
+    - **Text format**: "Ch 45 / 120" in blue text
+    - **Completion badge**: Small green chip next to title
+    - **Mini progress bar**: 1px line at bottom of thumbnail
+  </Tab>
+</Tabs>
+
+---
+
+## Empty State
+
+When no books match filters:
+
+```
+📚 No matches found
+
+Try adjusting your search terms or filters.
+
+[ Clear Filters ]
+```
+
+When library is empty:
+
+```
+📖 Your collection is empty
+
+Import your EPUB files to start building your personal library.
+```
+
+<Tip>
+  Download novels from the Search page to automatically populate your library with properly formatted EPUBs.
+</Tip>
+
+---
+
+## Advanced Features
+
+### Cover Extraction
+
+Covers are automatically extracted from EPUB metadata:
+
+```
+GET /api/cover/{filename}
+```
+
+If no cover is embedded, a fallback placeholder is shown:
+
+```jsx
+<div className="flex items-center justify-center bg-zinc-900">
+  <BookOpen size={48} className="text-zinc-800" />
+  <span>No Cover</span>
+</div>
+```
+
+### Metadata Display
+
+- **Title**: Extracted from `<dc:title>` in EPUB metadata
+- **Author**: Extracted from `<dc:creator>` in EPUB metadata
+- **Date Added**: File creation timestamp
+- **File Size**: Calculated from EPUB file size
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Books not appearing in library">
+    1. Check that files are valid EPUB format (not MOBI or PDF)
+    2. Restart the app to trigger library refresh
+    3. Verify Python backend is running (`http://localhost:8000/api/library`)
+    4. Check file permissions in library directory
+  </Accordion>
+  
+  <Accordion title="Progress not saving">
+    - Browser localStorage might be full (clear app cache)
+    - Check console for JavaScript errors
+    - Ensure you're using the same device (progress is local)
+  </Accordion>
+  
+  <Accordion title="Reader not opening">
+    - Large EPUBs (>50MB) may take 5-10 seconds to load
+    - Check console for errors like "Failed to fetch EPUB"
+    - Verify EPUB is not corrupted (try opening in another reader)
+  </Accordion>
+  
+  <Accordion title="Covers not displaying">
+    - Some EPUBs don't include cover metadata
+    - Backend cover extraction requires valid image format (JPG/PNG)
+    - Check `/api/cover/{filename}` endpoint directly in browser
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Download Novels" icon="download" href="/features/download-manager">
+    Scrape new content to add to your library
+  </Card>
+  
+  <Card title="Search & Discover" icon="search" href="/features/search">
+    Find novels across multiple sources
+  </Card>
+  
+  <Card title="EPUB Reader" icon="book-open" href="/features/epub-reader">
+    Read your novels with the built-in reader
+  </Card>
+  
+  <Card title="Provider System" icon="puzzle-piece" href="/advanced/providers">
+    Add more novel sources
+  </Card>
+</CardGroup>

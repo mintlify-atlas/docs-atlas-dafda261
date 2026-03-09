@@ -1,0 +1,327 @@
+---
+title: 'Download Manager'
+description: 'Control and monitor your novel scraping jobs with live progress tracking, Cloudflare bypass, and download history'
+icon: 'download'
+---
+
+## Overview
+
+The **Download Manager** is the core scraping interface of UNS. It provides comprehensive control over chapter-by-chapter scraping operations with real-time progress monitoring, automatic EPUB generation, and intelligent bypass capabilities for protected websites.
+
+<Note>
+  The Download Manager uses Electron's built-in Chromium browser to scrape pages like a real user, bypassing most bot protections including Cloudflare challenges.
+</Note>
+
+---
+
+## Starting a Download
+
+### Required Information
+
+<Steps>
+  <Step title="Enter First Chapter URL">
+    Paste the URL to the **first chapter** of the novel you want to download. The scraper will automatically follow "next chapter" links from this starting point.
+    
+    ```
+    https://example.com/novel/chapter-1
+    ```
+    
+    <Tip>
+      Make sure you're linking to Chapter 1, not the novel's table of contents page. The scraper needs to start from actual chapter content.
+    </Tip>
+  </Step>
+  
+  <Step title="Set Novel Title">
+    Enter the title exactly as you want it to appear in your EPUB file. This will also be used as the filename.
+    
+    <Info>
+      The title field is used for the generated EPUB filename, so avoid special characters that aren't valid in filenames.
+    </Info>
+  </Step>
+</Steps>
+
+### Optional Metadata
+
+<CardGroup cols={2}>
+  <Card title="Author Name" icon="user">
+    Add the author's name to embed proper metadata in your EPUB file.
+  </Card>
+  
+  <Card title="Cover Image" icon="image">
+    Upload a custom cover image (JPG/PNG) or use the auto-fetched cover from Search results.
+  </Card>
+</CardGroup>
+
+---
+
+## Workflow Example
+
+<Tabs>
+  <Tab title="Quick Start">
+    ```typescript
+    // Frontend sends job to Electron main process
+    window.electronAPI.startScrape({
+      job_id: crypto.randomUUID(),
+      start_url: "https://site.com/chapter-1",
+      novel_name: "My Novel",
+      author: "Author Name",
+      cover_data: base64ImageString,
+      enable_cloudflare_bypass: false,
+      sourceId: "detected-source"
+    });
+    ```
+    
+    1. User fills in required fields (URL + Title)
+    2. Click **Start Download**
+    3. Electron opens hidden Chromium window
+    4. Scraper extracts chapter content
+    5. Data sent to Python backend for storage
+    6. Process repeats until final chapter
+    7. EPUB file generated automatically
+  </Tab>
+  
+  <Tab title="With Search Integration">
+    When you start a download from the **Search** page:
+    
+    - Novel title is pre-filled
+    - Cover image is automatically attached
+    - First chapter URL is detected
+    - Author metadata is included
+    
+    This saves time and ensures complete metadata in your EPUB.
+  </Tab>
+</Tabs>
+
+---
+
+## Real-Time Monitoring
+
+### Statistics Panel
+
+The right sidebar displays live download metrics:
+
+<CardGroup cols={2}>
+  <Card title="Status" icon="circle-dot">
+    **Active** (green pulse) or **Idle** (gray)
+  </Card>
+  
+  <Card title="Elapsed Time" icon="clock">
+    Live timer showing `MM:SS` format
+  </Card>
+  
+  <Card title="Chapters Scraped" icon="book">
+    Current count updates in real-time as each chapter is saved
+  </Card>
+  
+  <Card title="Speed" icon="gauge">
+    Chapters per second average (e.g., `2.5/s`)
+  </Card>
+</CardGroup>
+
+### Progress Bar
+
+Once the total chapter count is detected, a visual progress bar shows:
+
+```jsx
+// Progress calculation
+const progress = (chaptersScraped / totalChapters) * 100;
+```
+
+<Info>
+  The total chapter count is extracted from the source website during the first few chapters, so the progress bar may appear after a brief delay.
+</Info>
+
+---
+
+## Console Output
+
+The integrated console displays real-time logs from the scraping engine:
+
+<Tabs>
+  <Tab title="Log Types">
+    - **Info** (gray) - General status updates
+    - **Success** (green) - Successful operations
+    - **Error** (red) - Failures or warnings
+    - **Progress** (blue) - Chapter save confirmations
+    
+    ```
+    [14:32:15] 🚀 Initializing download engine...
+    [14:32:18] Saved Chapter 1: The Beginning
+    [14:32:21] Saved Chapter 2: First Steps
+    [14:32:24] Total chapters: 150
+    ```
+  </Tab>
+  
+  <Tab title="Console Actions">
+    - **Auto-scroll**: Automatically scrolls to newest logs
+    - **Clear console**: Trash icon in header
+    - **Event count**: Shows total log entries
+  </Tab>
+</Tabs>
+
+---
+
+## Advanced Options
+
+### Cloudflare Bypass Mode
+
+<Warning>
+  Only enable Cloudflare bypass if you encounter anti-bot protection pages. This mode significantly slows down the scraping process.
+</Warning>
+
+When enabled, the scraper:
+
+1. Makes the browser window **visible** to the user
+2. Waits for manual interaction if a CAPTCHA appears
+3. Pauses between requests to mimic human behavior
+4. Uses extended timeouts for page loads
+
+```jsx
+// Toggle Cloudflare bypass
+setEnableCloudflareBypass(true);
+```
+
+<Tip>
+  If you see "Checking your browser..." or similar messages, enable this option and complete the challenge manually in the visible browser window.
+</Tip>
+
+### Show/Hide Scraper Window
+
+Click the **External Link** icon in the header to toggle the Chromium scraper window visibility:
+
+- **Hidden** (default): Runs in background for better performance
+- **Visible**: Watch the scraper navigate pages in real-time
+
+---
+
+## Download Controls
+
+<CardGroup cols={2}>
+  <Card title="Start Download" icon="play">
+    Begins scraping from the provided URL. Button disabled until required fields are filled.
+  </Card>
+  
+  <Card title="Abort Download" icon="square">
+    Immediately stops the active scraping job. Partial progress is saved to History.
+  </Card>
+  
+  <Card title="Clear Console" icon="trash">
+    Removes all log entries and resets statistics display.
+  </Card>
+  
+  <Card title="Delete Job" icon="x">
+    Removes the current job from history and clears all associated data.
+  </Card>
+</CardGroup>
+
+---
+
+## Completion & Auto-Cleanup
+
+When a download finishes:
+
+1. Status changes to **COMPLETED**
+2. Final EPUB file is generated via `/api/finalize-epub`
+3. Success message displayed in console
+4. After 2.5 seconds, form fields auto-clear
+5. Job marked as completed in History
+
+```typescript
+// Auto-cleanup on completion
+if (data.status === 'COMPLETED') {
+  setTimeout(() => {
+    setUrl('');
+    setName('');
+    setAuthor('');
+    clearCover();
+    setCurrentJobId(null);
+  }, 2500);
+}
+```
+
+<Info>
+  Completed EPUB files are automatically saved to your Library and can be read immediately without reopening the app.
+</Info>
+
+---
+
+## Resume Interrupted Downloads
+
+If a download is interrupted:
+
+1. Go to **History** page
+2. Find the incomplete job
+3. Click **Resume**
+4. Scraping continues from the last saved chapter
+
+<Note>
+  The backend tracks progress in real-time, so you never lose scraped chapters even if the app crashes.
+</Note>
+
+---
+
+## Keyboard Tips
+
+<CardGroup cols={2}>
+  <Card title="Enter" icon="keyboard">
+    Press Enter in any input field to start download (if required fields are filled)
+  </Card>
+  
+  <Card title="Tab" icon="keyboard">
+    Navigate between input fields efficiently
+  </Card>
+</CardGroup>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Download not starting">
+    - Ensure both URL and Title fields are filled
+    - Check console for error messages
+    - Verify the URL is accessible in a regular browser
+    - Try enabling Cloudflare bypass if the site has bot protection
+  </Accordion>
+  
+  <Accordion title="Scraper stuck on one chapter">
+    - Open the scraper window to see what's happening
+    - The site might require manual CAPTCHA solving
+    - Check if the website changed its HTML structure
+    - Try a different provider from the Marketplace
+  </Accordion>
+  
+  <Accordion title="Missing chapters in EPUB">
+    - Some websites have inconsistent "next chapter" links
+    - Check the History page to see which chapters were saved
+    - You may need to manually download missing chapters separately
+  </Accordion>
+  
+  <Accordion title="EPUB generation failed">
+    - Ensure Python backend is running (check console for backend errors)
+    - Verify you have write permissions to the output directory
+    - Try deleting the job and restarting the download
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Troubleshooting" icon="circle-question" href="/troubleshooting">
+    Common issues and solutions for downloads
+  </Card>
+  
+  <Card title="Read EPUBs" icon="book-open" href="/features/library-manager">
+    Access your completed novels in the Library
+  </Card>
+  
+  <Card title="Find Novels" icon="search" href="/features/search">
+    Discover new content across multiple sources
+  </Card>
+  
+  <Card title="Add Providers" icon="plug" href="/advanced/providers">
+    Expand support for more websites
+  </Card>
+</CardGroup>

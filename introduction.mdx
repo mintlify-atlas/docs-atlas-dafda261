@@ -1,0 +1,92 @@
+---
+title: Introduction
+description: High-performance desktop application for scraping web novels and converting them into EPUB books
+---
+
+<img
+  className="block"
+  src="https://media.brand.dev/288cc7c4-5cef-4376-950b-bdf0083eedae.png"
+  alt="Universal Novel Scraper"
+  style={{ maxWidth: '200px', margin: '0 auto 2rem' }}
+/>
+
+# Welcome to Universal Novel Scraper
+
+**Universal Novel Scraper (UNS)** is a powerful desktop application that lets you download web novels from supported websites and convert them into professionally formatted EPUB books. Built with Electron, React, and FastAPI, UNS provides a seamless experience across Windows, macOS, and Linux.
+
+## Why UNS?
+
+Unlike traditional scraping tools that are easily detected by anti-bot systems, UNS uses **Electron's built-in Chromium browser** to scrape pages like a real user. This unique approach allows the application to:
+
+- **Bypass Cloudflare** and other bot protection systems
+- **Scrape dynamic websites** that rely on JavaScript rendering
+- **Maintain browsing sessions** for authenticated content
+- **Avoid detection** by appearing as a normal browser
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Download Manager" icon="download" href="/features/download-manager">
+    Chapter-by-chapter scraping with progress tracking and resume capability
+  </Card>
+  <Card title="Library Manager" icon="book" href="/features/library-manager">
+    Organize your EPUB collection with cover images and metadata
+  </Card>
+  <Card title="Multi-Site Search" icon="magnifying-glass" href="/features/search">
+    Search across multiple novel providers simultaneously
+  </Card>
+  <Card title="Built-in Reader" icon="book-open" href="/features/epub-reader">
+    Read your downloaded novels directly in the app
+  </Card>
+  <Card title="Cloudflare Bypass" icon="shield" href="/advanced/cloudflare-bypass">
+    Manual browser control for handling protected sites
+  </Card>
+  <Card title="Provider Plugins" icon="puzzle-piece" href="/advanced/providers">
+    Community-driven provider system with automatic updates
+  </Card>
+</CardGroup>
+
+## How It Works
+
+UNS uses a **sidecar architecture** where different components handle specific responsibilities:
+
+1. **React Frontend** - Provides the user interface for managing downloads and your library
+2. **Electron Main Process** - Controls the Chromium browser and manages the scraping workflow
+3. **Python FastAPI Backend** - Stores chapters, tracks progress, and generates EPUB files
+
+```
+React UI → Electron → Chromium Browser → Python Engine → EPUB Generator
+```
+
+This architecture ensures reliable scraping while maintaining a clean separation of concerns.
+
+## Cross-Platform Support
+
+UNS is available as a native desktop application for:
+
+- **Windows** - Windows 10 and later
+- **macOS** - macOS 10.13 (High Sierra) and later
+- **Linux** - Most modern distributions
+
+Download the latest release for your platform from the [GitHub releases page](https://github.com/OsamaTab/UNS/releases/latest).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Download and install UNS on your system
+  </Card>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Start downloading your first novel in minutes
+  </Card>
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture/overview">
+    Learn how UNS works under the hood
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the backend API endpoints
+  </Card>
+</CardGroup>
+
+## Open Source
+
+UNS is open source and licensed under the Creative Commons Attribution-NonCommercial 4.0 license. Contributions, bug reports, and feature requests are welcome on [GitHub](https://github.com/OsamaTab/UNS).

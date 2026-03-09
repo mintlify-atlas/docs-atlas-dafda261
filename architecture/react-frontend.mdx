@@ -1,0 +1,493 @@
+---
+title: 'React Frontend'
+description: 'UI components, routing, state management, and IPC communication'
+icon: 'react'
+---
+
+## Overview
+
+The React frontend (`frontend/src/`) provides the user interface for Universal Novel Scraper. Built with React 18, React Router, and Tailwind CSS, it communicates with the Electron main process via IPC and displays real-time scraping progress.
+
+## Technology Stack
+
+<CardGroup cols={2}>
+  <Card title="React 18" icon="react">
+    Modern React with Hooks, concurrent features, and functional components
+  </Card>
+  
+  <Card title="React Router v6" icon="route">
+    Client-side routing with HashRouter for Electron compatibility
+  </Card>
+  
+  <Card title="Tailwind CSS" icon="palette">
+    Utility-first CSS framework for rapid UI development
+  </Card>
+  
+  <Card title="Lucide React" icon="feather">
+    Beautiful, consistent icon library
+  </Card>
+</CardGroup>
+
+## Application Structure
+
+### Main App Component
+
+The root component manages global state and routing:
+
+```jsx App.jsx:10-53
+export default function App() {
+  // Global Scraper State
+  const [isScraping, setIsScraping] = useState(false);
+  const [status, setStatus] = useState('Ready');
+  const [progress, setProgress] = useState('0 chapters');
+  const [currentJobId, setCurrentJobId] = useState(null);
+  const [library, setLibrary] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchHasSearched, setSearchHasSearched] = useState(false);
+  const [searchSourceStates, setSearchSourceStates] = useState({});
+
+  const API_BASE = "http://127.0.0.1:8000/api";
+
+  const fetchLibrary = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/history`);
+      if (res.ok) {
+        const data = await res.json();
+        setLibrary(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch library", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLibrary();
+    window.electronAPI?.onEngineReady(fetchLibrary);
+
+    // Listen for global scrape updates
+    const handleStatus = (data) => {
+      setStatus(data.status);
+      if (data.status === 'SAVED') {
+        setProgress(prev => `${(parseInt(prev) || 0) + 1} chapters`);
+      }
+      if (['COMPLETED', 'PAUSED', 'CANCELLED'].includes(data.status)) {
+        setIsScraping(false);
+        fetchLibrary();
+      }
+    };
+
+    window.electronAPI?.onScrapeStatus(handleStatus);
+    return () => window.electronAPI?.removeStatusListener();
+  }, [fetchLibrary]);
+```
+
+<Info>
+Notice the `window.electronAPI` object - this is the secure bridge exposed by `preload.js` using `contextBridge`. It provides type-safe IPC communication without exposing Node.js APIs to the renderer.
+</Info>
+
+### Routing Configuration
+
+```jsx App.jsx:55-90
+return (
+  <HashRouter>
+    <div className="min-h-screen bg-[#0f0f12] text-white selection:bg-blue-500/30">
+      <Navigation isScraping={isScraping} />
+      <main className="max-w-6xl mx-auto px-6 py-8">
+        <Routes>
+          <Route path="/" element={<Navigate to="/library" />} />
+          <Route path="/download" element={
+            <Download
+              isScraping={isScraping} setIsScraping={setIsScraping}
+              status={status} setStatus={setStatus}
+              progress={progress} setProgress={setProgress}
+              currentJobId={currentJobId} setCurrentJobId={setCurrentJobId}
+            />
+          } />
+          <Route path="/library" element={<Library />} />
+          <Route path="/search" element={
+            <Search
+              query={searchQuery} setQuery={setSearchQuery}
+              hasSearched={searchHasSearched} setHasSearched={setSearchHasSearched}
+              sourceStates={searchSourceStates} setSourceStates={setSearchSourceStates}
+            />
+          } />
+          <Route path="/history" element={
+            <History
+              library={library}
+              fetchLibrary={fetchLibrary}
+              setCurrentJobId={setCurrentJobId}
+              setIsScraping={setIsScraping}
+            />
+          } />
+          <Route path="/settings" element={<Settings />} />
+        </Routes>
+      </main>
+    </div>
+  </HashRouter>
+);
+```
+
+<Warning>
+**Why HashRouter?**
+
+Electron apps load files using the `file://` protocol, which doesn't support browser history. `HashRouter` uses URL hashes (`#/library`) instead of real paths, making it compatible with Electron.
+</Warning>
+
+## Page Components
+
+### Download Page
+
+The Download page manages scraping jobs and displays real-time progress:
+
+```jsx Download.jsx:11-50
+export default function Download({
+  isScraping, setIsScraping, status, setStatus,
+  currentJobId, setCurrentJobId
+}) {
+  const API_BASE = "http://127.0.0.1:8000/api";
+  const location = useLocation();
+  const prefill = location.state?.prefill || null;
+
+  const [url, setUrl] = useState(prefill ? prefill.url : '');
+  const [name, setName] = useState(prefill ? prefill.title : '');
+  const [author, setAuthor] = useState('');
+  const [coverData, setCoverData] = useState(prefill && prefill.cover ? prefill.cover : '');
+  const [coverFileName, setCoverFileName] = useState(prefill && prefill.cover ? 'Cover from search' : '');
+  const [coverPreview, setCoverPreview] = useState(prefill && prefill.cover ? prefill.cover : null);
+
+  const [enableCloudflareBypass, setEnableCloudflareBypass] = useState(false);
+  const [showBrowser, setShowBrowser] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [chaptersScraped, setChaptersScraped] = useState(0);
+  const [totalChapters, setTotalChapters] = useState(null);
+  const [startTime, setStartTime] = useState(null);
+  const [elapsedTime, setElapsedTime] = useState('00:00');
+
+  const logEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  
+  // Timer for elapsed time
+  useEffect(() => {
+    let interval;
+    if (isScraping && startTime) {
+      interval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+        const secs = (elapsed % 60).toString().padStart(2, '0');
+        setElapsedTime(`${mins}:${secs}`);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isScraping, startTime]);
+```
+
+Key features:
+- Pre-fill support from search results
+- Real-time elapsed timer
+- Live log viewer
+- Chapter progress tracking
+
+## State Management Strategy
+
+### Lifted State Pattern
+
+Global scraping state is managed in `App.jsx` and passed down to child components:
+
+```jsx
+// Global state in App.jsx
+const [isScraping, setIsScraping] = useState(false);
+const [currentJobId, setCurrentJobId] = useState(null);
+
+// Passed to Download page
+<Download 
+  isScraping={isScraping} 
+  setIsScraping={setIsScraping}
+  currentJobId={currentJobId}
+  setCurrentJobId={setCurrentJobId}
+/>
+```
+
+**Why This Approach?**
+<CardGroup cols={2}>
+  <Card title="Simple & Transparent" icon="eye">
+    No complex state management libraries needed for this app's scope
+  </Card>
+  
+  <Card title="Single Source of Truth" icon="database">
+    All scraping state lives in one place, making debugging easier
+  </Card>
+  
+  <Card title="Prop Drilling Acceptable" icon="sitemap">
+    Only 2-3 levels deep, manageable without context or Redux
+  </Card>
+  
+  <Card title="Easy IPC Integration" icon="plug">
+    IPC listeners update state directly in parent component
+  </Card>
+</CardGroup>
+
+### Local Component State
+
+Each page manages its own UI-specific state:
+
+```jsx
+// Download.jsx - form state
+const [url, setUrl] = useState('');
+const [name, setName] = useState('');
+const [author, setAuthor] = useState('');
+const [logs, setLogs] = useState([]);
+
+// Search.jsx - search state
+const [results, setResults] = useState([]);
+const [loading, setLoading] = useState(false);
+
+// Library.jsx - view state
+const [selectedBook, setSelectedBook] = useState(null);
+const [viewMode, setViewMode] = useState('grid');
+```
+
+## IPC Communication Patterns
+
+### Sending Messages to Main Process
+
+React components trigger actions in Electron:
+
+```jsx
+const handleStartScrape = () => {
+  const jobData = {
+    job_id: `job_${Date.now()}`,
+    novel_name: name,
+    author: author,
+    start_url: url,
+    cover_data: coverData,
+    enable_cloudflare_bypass: enableCloudflareBypass,
+    sourceId: 'generic'
+  };
+  
+  // Send IPC message to Electron main process
+  window.electronAPI.startScrape(jobData);
+  setIsScraping(true);
+  setStartTime(Date.now());
+};
+```
+
+### Receiving Events from Main Process
+
+Components register listeners for IPC events:
+
+```jsx
+useEffect(() => {
+  const handleStatus = (data) => {
+    setStatus(data.status);
+    
+    // Update logs
+    setLogs(prev => [...prev, {
+      time: new Date().toLocaleTimeString(),
+      msg: data.message || data.status,
+      type: data.type || 'info'
+    }]);
+    
+    // Handle completion
+    if (data.status === 'COMPLETED') {
+      setIsScraping(false);
+      fetchLibrary();
+    }
+  };
+  
+  window.electronAPI?.onScrapeStatus(handleStatus);
+  
+  // Cleanup listener on unmount
+  return () => window.electronAPI?.removeStatusListener();
+}, []);
+```
+
+<Warning>
+**Always clean up IPC listeners!**
+
+Failing to remove listeners in the cleanup function causes memory leaks and duplicate event handling.
+</Warning>
+
+## Direct HTTP API Calls
+
+Some operations bypass Electron and call the Python backend directly:
+
+```jsx
+const fetchLibrary = async () => {
+  try {
+    const res = await fetch('http://127.0.0.1:8000/api/library');
+    if (res.ok) {
+      const data = await res.json();
+      setEpubs(data);
+    }
+  } catch (e) {
+    console.error('Failed to fetch library', e);
+  }
+};
+```
+
+**When to use HTTP vs IPC:**
+
+| Operation | Method | Reason |
+|-----------|--------|--------|
+| Start/stop scraping | IPC | Needs browser control |
+| Fetch library data | HTTP | Simple data retrieval |
+| Get job status | HTTP | Direct from Python |
+| Open files | IPC | Needs shell access |
+| Delete EPUB | HTTP | File operation in Python |
+
+## Component Hierarchy
+
+```plaintext
+App.jsx (Root)
+├── Navigation.jsx (Global nav bar)
+└── Routes
+    ├── Download.jsx (Scraping interface)
+    │   ├── Form inputs
+    │   ├── Advanced options
+    │   └── Live log viewer
+    ├── Library.jsx (EPUB viewer)
+    │   ├── Grid view
+    │   ├── Book cards with covers
+    │   └── EPUB reader modal
+    ├── Search.jsx (Multi-provider search)
+    │   ├── Provider tabs
+    │   ├── Search bar
+    │   └── Results grid
+    ├── History.jsx (Job manager)
+    │   ├── Active jobs list
+    │   ├── Resume/delete actions
+    │   └── Progress indicators
+    └── Settings.jsx (App configuration)
+        ├── Provider marketplace
+        ├── Install/uninstall
+        └── Advanced settings
+```
+
+## Styling Approach
+
+### Tailwind CSS Utility Classes
+
+The app uses Tailwind's utility-first approach:
+
+```jsx
+<div className="min-h-screen bg-[#0f0f12] text-white">
+  <div className="max-w-6xl mx-auto px-6 py-8">
+    <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition">
+      Start Scraping
+    </button>
+  </div>
+</div>
+```
+
+**Benefits:**
+- Fast development without writing CSS
+- Consistent spacing and colors
+- Easy responsive design with `md:`, `lg:` prefixes
+- Smaller bundle size (unused classes removed)
+
+### Custom Color Palette
+
+The app uses a dark theme with custom colors:
+
+```css
+Background: #0f0f12 (very dark gray)
+Primary: #3b82f6 (blue-500)
+Success: #10b981 (green-500)
+Danger: #ef4444 (red-500)
+Text: #ffffff (white)
+Muted: #6b7280 (gray-500)
+```
+
+## Performance Optimizations
+
+### useCallback for Stable References
+
+```jsx
+const fetchLibrary = useCallback(async () => {
+  try {
+    const res = await fetch(`${API_BASE}/history`);
+    if (res.ok) {
+      const data = await res.json();
+      setLibrary(data);
+    }
+  } catch (e) {
+    console.error("Failed to fetch library", e);
+  }
+}, []);
+```
+
+This prevents the function from being recreated on every render, which would cause infinite loops in `useEffect` dependencies.
+
+### Cleanup Effects
+
+All side effects are properly cleaned up:
+
+```jsx
+useEffect(() => {
+  const interval = setInterval(() => {
+    // Update timer
+  }, 1000);
+  
+  // Cleanup function
+  return () => clearInterval(interval);
+}, []);
+```
+
+## Build Configuration
+
+The frontend is built with Vite for fast development and optimized production builds:
+
+```json package.json:9-16
+"scripts": {
+  "start": "electron .",
+  "dev": "concurrently \"npm run start:frontend\" \"wait-on http://localhost:5173 && npm run start:electron\"",
+  "start:frontend": "cd frontend && npm run dev",
+  "start:electron": "ELECTRON_START_URL=http://localhost:5173 electron .",
+  "build:frontend": "cd frontend && npm install && npm run build",
+  "build:electron": "electron-builder",
+  "build": "npm run build:frontend && npm run build:electron"
+}
+```
+
+**Development Flow:**
+1. `npm run dev` starts both Vite dev server and Electron
+2. Electron loads from `http://localhost:5173`
+3. Hot module replacement for instant updates
+
+**Production Build:**
+1. `npm run build` creates optimized static files
+2. Output goes to `frontend/dist/`
+3. Electron loads from `file://` path in production
+
+## Best Practices
+
+<Steps>
+  <Step title="Use HashRouter for Electron">
+    Always use `HashRouter` instead of `BrowserRouter` to ensure routing works with the `file://` protocol.
+  </Step>
+  
+  <Step title="Clean up IPC listeners">
+    Return cleanup functions from `useEffect` hooks to prevent memory leaks and duplicate handlers.
+  </Step>
+  
+  <Step title="Handle API errors gracefully">
+    Always wrap HTTP and IPC calls in try-catch blocks and provide user feedback for errors.
+  </Step>
+  
+  <Step title="Optimize re-renders">
+    Use `useCallback` and `useMemo` for functions and expensive computations passed to child components.
+  </Step>
+</Steps>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Electron Main Process" icon="bolt" href="/architecture/electron-main">
+    Learn about the IPC handlers that the frontend calls
+  </Card>
+  
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture/overview">
+    Understand how the frontend fits into the overall architecture
+  </Card>
+</CardGroup>
