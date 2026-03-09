@@ -39,9 +39,11 @@
             "group": "Core Features",
             "pages": [
               "features/download-manager",
+              "features/history",
               "features/library-manager",
               "features/search",
-              "features/epub-reader"
+              "features/epub-reader",
+              "features/settings"
             ]
           },
           {

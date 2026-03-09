@@ -1,0 +1,323 @@
+---
+title: 'Settings'
+description: 'Manage app configuration, updates, and provider marketplace'
+icon: 'gear'
+---
+
+## Overview
+
+The **Settings** page is your central hub for managing UNS configuration, checking for updates, and installing provider plugins from the marketplace. It features two main tabs: **General** and **Provider Store**.
+
+<CardGroup cols={2}>
+  <Card title="App Information" icon="info-circle">
+    View version, license, and project details
+  </Card>
+  <Card title="Update Checker" icon="arrow-up-circle">
+    Check for new UNS releases on GitHub
+  </Card>
+  <Card title="Provider Store" icon="shopping-bag">
+    Browse and install community providers
+  </Card>
+  <Card title="Provider Management" icon="puzzle-piece">
+    View and delete installed providers
+  </Card>
+</CardGroup>
+
+## General Tab
+
+The General tab displays application information and update status.
+
+### App Information Card
+
+Shows project metadata from `package.json`:
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| **Product Name** | UNS | Application display name |
+| **Package Name** | novel-scraper-desktop | Internal package identifier |
+| **Version** | 1.1.0 | Current installed version |
+| **Author** | Osama | Project author |
+| **License** | CC-BY-NC-4.0 | Creative Commons Non-Commercial |
+| **App ID** | com.universalnovelscraper.app | Electron app identifier |
+
+<Info>
+  This data is hardcoded in `Settings.jsx:21-31` and reflects the values in `package.json`.
+</Info>
+
+### Update Checker
+
+UNS checks for new releases by querying the GitHub API:
+
+```javascript
+// From Settings.jsx:81-92
+const response = await fetch(
+  `https://api.github.com/repos/OsamaTab/UNS/releases/latest`
+);
+const data = await response.json();
+
+if (data.tag_name) {
+  const latest = data.tag_name.replace('v', '');
+  if (latest !== packageInfo.version) {
+    setUpdateAvailable(true);
+  }
+}
+```
+
+<Steps>
+  <Step title="Check for Updates">
+    Click the **Refresh** icon in the Update card header. The app queries the GitHub API for the latest release.
+  </Step>
+  
+  <Step title="View Update Status">
+    If a newer version exists, a blue notification appears:
+    
+    > "New Version Available! Version vX.X.X is ready for download."
+  </Step>
+  
+  <Step title="Download Update">
+    Click **Download Update** to open the GitHub releases page in your browser. Download and install the new version manually.
+  </Step>
+</Steps>
+
+<Note>
+  UNS does not have auto-update functionality. Updates must be downloaded and installed manually from GitHub.
+</Note>
+
+### Project Links
+
+Quick access buttons for:
+- **GitHub Repository** - Opens `https://github.com/OsamaTab/UNS`
+- **Report Issue** - Opens the GitHub Issues page
+- **Providers Repo** - Opens `https://github.com/OsamaTab/UNS-Providers`
+
+## Provider Store Tab
+
+The Provider Store lets you browse and install community-maintained website scrapers.
+
+### How the Store Works
+
+<Steps>
+  <Step title="Fetch Manifest">
+    When you open the Store tab, UNS fetches a manifest file from GitHub:
+    
+    ```javascript
+    const res = await fetch(
+      'https://raw.githubusercontent.com/OsamaTab/UNS-Providers/main/manifest.json'
+    );
+    const manifest = await res.json();
+    ```
+    
+    The manifest contains metadata for all available providers (name, icon, version, type).
+  </Step>
+  
+  <Step title="Map Download URLs">
+    Each provider is mapped to its raw GitHub URL:
+    
+    ```javascript
+    const scripts = manifest.map(item => ({
+      ...item,
+      download_url: `https://raw.githubusercontent.com/OsamaTab/UNS-Providers/main/${item.id}.js`
+    }));
+    ```
+  </Step>
+  
+  <Step title="Display Providers">
+    The UI renders provider cards with:
+    - Icon/logo
+    - Name
+    - Description
+    - Version
+    - Install button (or "Installed" badge if already added)
+  </Step>
+</Steps>
+
+### Installing Providers
+
+<Steps>
+  <Step title="Search for Provider">
+    Use the search bar to filter providers by name. The search is case-insensitive and matches provider names.
+  </Step>
+  
+  <Step title="Click Install">
+    Click the **Install** button on a provider card. This triggers the IPC channel:
+    
+    ```javascript
+    await window.electronAPI.installFromUrl({
+      id: 'lightnovelworld',
+      url: 'https://raw.githubusercontent.com/OsamaTab/UNS-Providers/main/lightnovelworld.js'
+    });
+    ```
+  </Step>
+  
+  <Step title="Download and Save">
+    The main process downloads the provider script and saves it to:
+    - **macOS/Linux:** `~/Library/Application Support/UNS/providers/`
+    - **Windows:** `%APPDATA%/UNS/providers/`
+    
+    The provider is immediately loaded and available for use.
+  </Step>
+  
+  <Step title="Confirmation">
+    The "Install" button changes to a green "Installed" badge.
+  </Step>
+</Steps>
+
+<Tip>
+  Providers are JavaScript files that define scraping logic for specific websites. See the [Provider System](/advanced/providers) guide for details on creating custom providers.
+</Tip>
+
+### Installed Providers
+
+Below the Store grid, you'll see a list of installed providers with:
+- **Name** - Provider display name
+- **Version** - Semantic version (e.g., "1.0.0")
+- **Delete Button** - Remove the provider
+
+### Deleting Providers
+
+<Steps>
+  <Step title="Click Delete">
+    Click the trash icon next to an installed provider.
+  </Step>
+  
+  <Step title="IPC Delete">
+    This triggers:
+    
+    ```javascript
+    await window.electronAPI.deleteProvider('lightnovelworld');
+    ```
+  </Step>
+  
+  <Step title="File Removal">
+    The main process deletes the `.js` file from the providers directory and unloads the provider from memory.
+  </Step>
+  
+  <Step title="Refresh">
+    The installed providers list refreshes automatically.
+  </Step>
+</Steps>
+
+<Warning>
+  Deleting a provider removes it permanently. You can reinstall it from the Store, but any custom modifications to the provider script will be lost.
+</Warning>
+
+## Provider Marketplace Repository
+
+The official provider repository is hosted at:
+
+**https://github.com/OsamaTab/UNS-Providers**
+
+### Manifest Structure
+
+The `manifest.json` file lists all available providers:
+
+```json
+[
+  {
+    "id": "lightnovelworld",
+    "name": "LightNovelWorld",
+    "version": "1.0.0",
+    "icon": "🌍",
+    "type": "novel",
+    "beta": false,
+    "description": "Scraper for LightNovelWorld.com"
+  },
+  {
+    "id": "allnovel",
+    "name": "AllNovel",
+    "version": "1.2.0",
+    "icon": "📚",
+    "type": "novel",
+    "beta": false
+  }
+]
+```
+
+### Contributing Providers
+
+To add your provider to the marketplace:
+
+1. Create a provider script following the [Provider API](/advanced/providers)
+2. Test it locally in your `providers/` directory
+3. Submit a pull request to the `UNS-Providers` repository
+4. Include an entry in `manifest.json` with metadata
+
+<Note>
+  All providers in the marketplace are reviewed before merging to ensure they follow best practices and don't contain malicious code.
+</Note>
+
+## Configuration Details
+
+### Application Metadata
+
+```javascript
+// From Settings.jsx:21-31
+const packageInfo = {
+  name: "novel-scraper-desktop",
+  productName: "UNS",
+  description: "Desktop app for scraping web novels into EPUB format",
+  version: "1.1.0",
+  author: "Osama",
+  license: "CC-BY-NC-4.0",
+  appId: "com.universalnovelscraper.app",
+  repo: "OsamaTab/UNS",
+  providersRepo: "OsamaTab/UNS-Providers"
+};
+```
+
+### Provider Storage Paths
+
+Providers are stored in platform-specific directories:
+
+| Platform | Path |
+|----------|------|
+| **macOS** | `~/Library/Application Support/UNS/providers/` |
+| **Linux** | `~/.config/UNS/providers/` |
+| **Windows** | `%APPDATA%\UNS\providers\` |
+
+These paths are determined by Electron's `app.getPath('userData')`.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Provider Store won't load">
+    - Check your internet connection
+    - Verify you can access `https://github.com` in your browser
+    - The manifest file may be temporarily unavailable; try refreshing later
+  </Accordion>
+  
+  <Accordion title="Provider installation fails">
+    - Ensure you have write permissions to the providers directory
+    - Check if the provider ID is already in use
+    - Verify the download URL is accessible
+  </Accordion>
+  
+  <Accordion title="Update check shows old version">
+    - Click the refresh icon to re-check
+    - Clear your browser cache and restart UNS
+    - The GitHub API may be rate-limited; wait a few minutes and try again
+  </Accordion>
+  
+  <Accordion title="Installed providers not showing in Search">
+    - Restart UNS to reload providers
+    - Check that the provider file exists in the providers directory
+    - Look for errors in the console (Help → Toggle Developer Tools)
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Provider System" icon="puzzle-piece" href="/advanced/providers">
+    Learn how to create custom providers
+  </Card>
+  <Card title="Search & Discovery" icon="magnifying-glass" href="/features/search">
+    Use installed providers to find novels
+  </Card>
+  <Card title="IPC Channels" icon="tower-broadcast" href="/api/ipc-channels">
+    Explore provider installation IPC methods
+  </Card>
+  <Card title="Troubleshooting" icon="circle-question" href="/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>

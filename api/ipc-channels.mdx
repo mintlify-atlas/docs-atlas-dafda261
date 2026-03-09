@@ -713,6 +713,104 @@ ipcMain.on('open-external', (e, url) => {
 
 ---
 
+### open-output-folder
+
+Opens the EPUB output directory in the system's file manager.
+
+**Type:** `ipcRenderer.send()` (one-way)
+
+**Frontend Usage:**
+```javascript
+// Not exposed in preload.js but available in main.js
+// This is triggered internally when user clicks "Open Folder" in the Library
+```
+
+**Main Process Handler:**
+
+```javascript
+ipcMain.on('open-output-folder', () => {
+  shell.openPath(path.join(outputDir, 'epubs'));
+});
+```
+
+<Note>
+  This channel is primarily used internally by the Library Manager to open the folder containing EPUB files.
+</Note>
+
+---
+
+## Event Listeners
+
+These channels are for receiving events from the main process.
+
+### python-error
+
+Emitted when the Python backend encounters an error.
+
+**Type:** Event listener
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.onPythonError((data) => {
+  console.error('Backend error:', data);
+  alert(`Engine error: ${data.message}`);
+});
+
+// Cleanup
+window.electronAPI.removeErrorListener();
+```
+
+**Payload:**
+
+<ResponseField name="message" type="string">
+  Error message from the Python backend
+</ResponseField>
+
+**When Emitted:**
+- Python engine fails to start
+- Backend crashes during operation
+- API endpoint returns an error
+
+---
+
+### human-action-needed
+
+Emitted when manual user intervention is required (e.g., solving Cloudflare challenges).
+
+**Type:** Event listener
+
+**Frontend Usage:**
+```javascript
+window.electronAPI.onHumanActionNeeded((data) => {
+  console.log('Manual action needed:', data);
+  setShowCloudflareWarning(true);
+});
+
+// Cleanup
+window.electronAPI.removeHumanActionListener();
+```
+
+**Payload:**
+
+<ResponseField name="type" type="string">
+  Type of action needed (e.g., "cloudflare-challenge")
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Description of what action is required
+</ResponseField>
+
+**When Emitted:**
+- Cloudflare challenge detected during scraping
+- Manual browser interaction needed
+- Captcha or authentication required
+
+<Tip>
+  This event is closely tied to the Cloudflare bypass feature. When received, the scraper window is shown to the user so they can manually solve the challenge.
+</Tip>
+
+---
+
 ## Complete Example
 
 Here's a full scraping workflow using IPC:

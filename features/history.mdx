@@ -1,0 +1,294 @@
+---
+title: 'Download History'
+description: 'Track, resume, and manage your novel download history'
+icon: 'clock-rotate-left'
+---
+
+## Overview
+
+The **History** page provides a centralized view of all your novel downloads, both completed and in-progress. It allows you to resume paused downloads, finalize incomplete EPUBs, and manage your download history.
+
+<Note>
+  History is different from Library. **History** tracks download jobs and their status, while **Library** shows completed EPUB files ready to read.
+</Note>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Resume Downloads" icon="play">
+    Continue interrupted or paused downloads from where they left off
+  </Card>
+  <Card title="Search & Filter" icon="filter">
+    Find downloads by title, author, or status
+  </Card>
+  <Card title="Status Tracking" icon="chart-line">
+    Monitor progress with real-time chapter counts and status indicators
+  </Card>
+  <Card title="Early Finalization" icon="file-check">
+    Create EPUBs from partial downloads if you don't need all chapters
+  </Card>
+</CardGroup>
+
+## Accessing History
+
+Navigate to the **History** tab in the main navigation bar. The History page loads automatically and displays all download jobs from the backend.
+
+```
+Main Navigation → History Tab
+```
+
+## Job Status Types
+
+Downloads can have the following statuses:
+
+| Status | Description | Actions Available |
+|--------|-------------|-------------------|
+| **Processing** | Currently downloading chapters | View progress, Stop |
+| **Paused** | Download stopped by user | Resume, Delete, Finalize |
+| **Completed** | EPUB successfully generated | View in Library, Delete |
+| **Failed** | Download encountered an error | Resume, Delete |
+
+<Info>
+  The status is managed by the Python backend (`/api/history`) and automatically updates when you start, stop, or complete downloads.
+</Info>
+
+## Search and Filtering
+
+### Search Bar
+
+The search bar at the top filters downloads by:
+- **Novel title**
+- **Author name**
+- **Job ID** (UUID)
+
+```javascript
+// From History.jsx:48-53
+const query = searchQuery.toLowerCase();
+filtered = filtered.filter(novel =>
+  novel.novel_name?.toLowerCase().includes(query) ||
+  novel.author?.toLowerCase().includes(query) ||
+  novel.id?.toLowerCase().includes(query)
+);
+```
+
+### Status Filter
+
+Filter downloads by status using the dropdown:
+- **All** - Show everything
+- **Processing** - Active downloads only
+- **Completed** - Finished EPUBs
+- **Paused** - Stopped downloads
+
+### Sorting Options
+
+Click column headers to sort by:
+
+| Sort By | Description |
+|---------|-------------|
+| **Date** | When the download was created/updated (default) |
+| **Title** | Novel name (alphabetical) |
+| **Author** | Author name (alphabetical) |
+| **Chapters** | Number of chapters downloaded |
+| **Status** | Job status (alphabetical) |
+
+Click the same header again to toggle between ascending and descending order.
+
+<Tip>
+  Use **Date (Descending)** to see your most recent downloads first. This is the default setting.
+</Tip>
+
+## Resuming Downloads
+
+When a download is paused or fails, you can resume it from the History page.
+
+<Steps>
+  <Step title="Locate the Paused Download">
+    Find the novel in your History list. It will have a **Paused** or **Failed** status badge.
+  </Step>
+  
+  <Step title="Click Resume">
+    Click the **Resume** button (play icon). This triggers the IPC channel:
+    
+    ```javascript
+    window.electronAPI.resumeScrape({
+      job_id: id,
+      novel_name: novel.novel_name,
+      author: novel.author || "",
+      start_url: novel.start_url || "",
+      sourceId: novel.sourceId || 'generic',
+      cover_data: novel.cover_data || ""
+    });
+    ```
+  </Step>
+  
+  <Step title="Redirect to Download Manager">
+    You'll be automatically redirected to the **Download** page where scraping continues from the last saved chapter.
+  </Step>
+</Steps>
+
+<Warning>
+  Resuming a download uses the `start_url` saved in the backend. If this URL is no longer valid (e.g., the website changed its structure), the resume may fail.
+</Warning>
+
+## Early Finalization
+
+If you don't need all chapters of a novel, you can finalize a paused download early.
+
+<Steps>
+  <Step title="Select a Paused Download">
+    Find a download with **Paused** or **Processing** status.
+  </Step>
+  
+  <Step title="Click Finalize">
+    Click the **Finalize** button. A confirmation prompt appears:
+    
+    > "Create an EPUB with currently downloaded chapters? The job will be marked as Completed in your history."
+  </Step>
+  
+  <Step title="EPUB Generation">
+    The frontend sends a POST request to `/api/finalize-epub`:
+    
+    ```javascript
+    await fetch('http://127.0.0.1:8000/api/finalize-epub', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: id,
+        novel_name: novel.novel_name,
+        author: novel.author || "",
+        cover_data: novel.cover_data || ""
+      })
+    });
+    ```
+  </Step>
+  
+  <Step title="View in Library">
+    Once finalized, the job status changes to **Completed** and the EPUB appears in your Library.
+  </Step>
+</Steps>
+
+<Tip>
+  Use early finalization if:
+  - The novel is no longer available online
+  - You only want specific chapters
+  - The download is stuck due to website changes
+</Tip>
+
+## Deleting Downloads
+
+Remove downloads from your history to clean up space.
+
+<Steps>
+  <Step title="Click Delete">
+    Click the **Delete** (trash icon) button next to the download.
+  </Step>
+  
+  <Step title="Confirm Deletion">
+    Confirm the prompt: "Delete this novel from history?"
+  </Step>
+  
+  <Step title="Cleanup">
+    The frontend sends a DELETE request to `/api/novel/{job_id}`, which removes:
+    - Job entry from `jobs_history.json`
+    - Progress file (`{job_id}_progress.jsonl`)
+    - Active scrape entry if paused
+  </Step>
+</Steps>
+
+<Warning>
+  **Deleting a download is permanent.** If you haven't finalized the EPUB, you'll lose all downloaded chapters. Only delete after finalizing or if you no longer need the novel.
+</Warning>
+
+## Refresh History
+
+Click the **Refresh** button (circular arrow icon) to manually reload the history from the backend. This is useful if:
+- You've completed a download in another window
+- The status seems out of sync
+- You want to verify recent changes
+
+```javascript
+// From History.jsx:133-137
+const handleRefresh = async () => {
+  setIsRefreshing(true);
+  await fetchLibrary();
+  setTimeout(() => setIsRefreshing(false), 500);
+};
+```
+
+## Clear Filters
+
+If you've applied multiple filters and want to reset, click the **Clear Filters** button (X icon). This resets:
+- Search query to empty
+- Status filter to "All"
+- Sort to "Date (Descending)"
+
+## Progress Tracking
+
+Each history entry displays:
+
+| Field | Description | Source |
+|-------|-------------|--------|
+| **Novel Title** | Name of the novel | `novel_name` from backend |
+| **Author** | Author name | `author` field (optional) |
+| **Chapters Downloaded** | Count of chapters scraped | `chapters_count` from backend |
+| **Status Badge** | Current job status | `status` field |
+| **Last Updated** | Timestamp of last activity | `created_at` or `updated_at` |
+
+<Info>
+  Chapter count is read from the `.jsonl` progress file. Each line represents one chapter, so the backend counts lines in `{job_id}_progress.jsonl`.
+</Info>
+
+## Data Flow
+
+```
+History Page (React)
+        ↓
+    HTTP GET /api/history
+        ↓
+Python Backend (api.py)
+        ↓
+jobs_history.json + progress files
+        ↓
+Returns job metadata + chapter counts
+        ↓
+History Page renders table
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="History is empty but I've downloaded novels">
+    Check the Library page instead. Completed downloads are stored as EPUB files and may not appear in History if they were finalized successfully.
+  </Accordion>
+  
+  <Accordion title="Resume button doesn't work">
+    - Ensure the Python backend is running (`http://127.0.0.1:8000/api/health`)
+    - Check that `start_url` is still valid for the novel
+    - Verify the provider script is still installed
+  </Accordion>
+  
+  <Accordion title="Chapter count shows 0">
+    The progress file may be corrupted or missing. Try resuming the download or deleting the history entry.
+  </Accordion>
+  
+  <Accordion title="Status stuck on 'Processing'">
+    This happens if the app crashed during download. Click **Stop** in the Download Manager or delete the history entry and restart.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Download Manager" icon="download" href="/features/download-manager">
+    Learn how to start and control downloads
+  </Card>
+  <Card title="Library Manager" icon="books" href="/features/library-manager">
+    View and read your completed EPUBs
+  </Card>
+  <Card title="Backend API" icon="server" href="/api/history">
+    Explore the history API endpoints
+  </Card>
+  <Card title="Troubleshooting" icon="circle-question" href="/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>
