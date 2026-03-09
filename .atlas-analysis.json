@@ -1,0 +1,112 @@
+{
+  "projectType": "saas",
+  "projectName": "Universal Novel Scraper",
+  "projectDescription": "High-performance desktop application for scraping web novels and converting them into EPUB books",
+  "theme": "palm",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/download-manager",
+              "features/library-manager",
+              "features/search",
+              "features/epub-reader"
+            ]
+          },
+          {
+            "group": "Advanced Usage",
+            "pages": [
+              "advanced/cloudflare-bypass",
+              "advanced/providers",
+              "advanced/scraping-flow"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/electron-main",
+              "architecture/python-backend",
+              "architecture/react-frontend"
+            ]
+          },
+          {
+            "group": "Developer Guide",
+            "pages": [
+              "development/setup",
+              "development/building",
+              "development/project-structure"
+            ]
+          },
+          {
+            "group": "Help",
+            "pages": [
+              "troubleshooting",
+              "faq"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Backend API",
+            "pages": [
+              "api/overview",
+              "api/chapters",
+              "api/epub",
+              "api/library",
+              "api/history"
+            ]
+          },
+          {
+            "group": "IPC Communication",
+            "pages": [
+              "api/ipc-channels"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Cloudflare bypass using Electron's Chromium browser",
+    "Chapter-by-chapter web novel scraping",
+    "EPUB generation with metadata and cover images",
+    "Built-in library manager and EPUB reader",
+    "Multi-site search aggregation",
+    "Download history and resume capability",
+    "Provider plugin system",
+    "Cross-platform desktop app (Windows, macOS, Linux)"
+  ],
+  "publicApiSurface": [
+    "POST /api/save-chapter",
+    "POST /api/finalize-epub",
+    "GET /api/library",
+    "GET /api/history",
+    "GET /api/status/{job_id}",
+    "GET /api/cover/{filename}",
+    "GET /api/download/{job_id}",
+    "POST /api/stop-scrape",
+    "DELETE /api/novel/{job_id}",
+    "DELETE /api/library/{filename}",
+    "GET /api/library/download/{filename}",
+    "GET /api/health"
+  ]
+}
